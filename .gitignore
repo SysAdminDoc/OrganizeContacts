@@ -1,0 +1,53 @@
+# --- AI agent working files (never commit) -------------------------------
+CLAUDE.md
+CODEX_CHANGELOG.md
+.claude/
+
+# --- backups --------------------------------------------------------------
+*.bak
+*.orig
+*.tmp
+
+# --- .NET build output ----------------------------------------------------
+bin/
+obj/
+out/
+publish/
+*.user
+*.suo
+*.cache
+*.dbmdl
+.vs/
+*.binlog
+
+# --- VS / Rider / VSCode --------------------------------------------------
+.vscode/
+.idea/
+*.sln.docstates
+
+# --- Test / coverage ------------------------------------------------------
+TestResults/
+coverage/
+*.coverage
+
+# --- Local artifacts ------------------------------------------------------
+*.log
+*.pdb
+*.lastcodeanalysissucceeded
+release-artifacts/
+local-data/
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-journal
+
+# --- OS -------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Sample contacts (PII risk — keep local only) -------------------------
+samples/private/
+*.pst
+*.ost

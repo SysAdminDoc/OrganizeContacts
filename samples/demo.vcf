@@ -1,0 +1,47 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Jane Q. Public
+N:Public;Jane;Q.;;
+ORG:Acme Corporation
+TITLE:Lead Engineer
+TEL;TYPE=CELL,PREF:+1-555-0100
+TEL;TYPE=WORK:+1-555-0101
+EMAIL;TYPE=WORK:jane.public@acme.example
+EMAIL;TYPE=HOME:jane@personal.example
+ADR;TYPE=WORK:;;100 Main St;Anytown;NY;10001;USA
+URL:https://acme.example/jane
+NOTE:Met at the 2026 conference.
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Jane Public
+N:Public;Jane;;;
+ORG:Acme Corp
+TEL;TYPE=CELL:555-0100
+EMAIL:Jane.Public@acme.example
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:John Doe
+N:Doe;John;;;
+ORG:Globex
+TEL;TYPE=CELL:+1-555-0200
+EMAIL:john@globex.example
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Johnathan Doe
+N:Doe;Johnathan;;;
+ORG:Globex Industries
+TEL;TYPE=WORK:+1-555-0200
+EMAIL:johnathan.doe@globex.example
+NOTE:Same person as John Doe? Phone matches.
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Mary Solo
+N:Solo;Mary;;;
+ORG:Independent
+TEL;TYPE=CELL:+1-555-0300
+EMAIL:mary@solo.example
+END:VCARD

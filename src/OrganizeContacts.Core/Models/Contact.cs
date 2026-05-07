@@ -2,7 +2,14 @@ namespace OrganizeContacts.Core.Models;
 
 public sealed class Contact
 {
-    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public string? Uid { get; set; }
+    public string? Rev { get; set; }
+
+    public Guid? SourceId { get; set; }
+    public Guid? ImportId { get; set; }
+
     public string? FormattedName { get; set; }
     public string? GivenName { get; set; }
     public string? FamilyName { get; set; }
@@ -13,18 +20,21 @@ public sealed class Contact
     public string? Organization { get; set; }
     public string? Title { get; set; }
     public DateOnly? Birthday { get; set; }
+    public DateOnly? Anniversary { get; set; }
     public string? Notes { get; set; }
     public byte[]? PhotoBytes { get; set; }
     public string? PhotoMimeType { get; set; }
     public string? SourceFile { get; set; }
     public string? SourceFormat { get; set; }
     public DateTimeOffset ImportedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public List<PhoneNumber> Phones { get; } = new();
     public List<EmailAddress> Emails { get; } = new();
     public List<PostalAddress> Addresses { get; } = new();
     public List<string> Categories { get; } = new();
     public List<string> Urls { get; } = new();
+    public Dictionary<string, string> CustomFields { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public string DisplayName =>
         !string.IsNullOrWhiteSpace(FormattedName) ? FormattedName!

@@ -7,11 +7,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>OrganizeContacts.Core</RootNamespace>
     <AssemblyName>OrganizeContacts.Core</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
+    <PackageReference Include="libphonenumber-csharp" Version="9.0.18" />
   </ItemGroup>
 
 </Project>

@@ -102,7 +102,7 @@ Tiers:
 
 ### Now
 
-1. Build a real local data model and migration layer.
+1. [x] Build a real local data model and migration layer. *(v0.2.0 - ContactRepository + V1 migration)*
    - Sources: L04, L05, S31, S32, S61.
    - Impact 5, effort 3, risk medium.
    - Dependencies: SQLite schema design, contact/source/import tables, migration tests.
@@ -123,7 +123,7 @@ Tiers:
    - Novelty: leapfrog versus many built-ins.
    - Justification: users need to know what will be created, updated, skipped, or flagged before importing.
 
-4. Implement source/account attribution everywhere.
+4. [x] Implement source/account attribution everywhere. *(v0.2.0 - SourceId on Contact + every child element + ContactSource table)*
    - Sources: L05, S05, S30, S38, S44, S50.
    - Impact 5, effort 3, risk low.
    - Dependencies: source tables and UI badges.

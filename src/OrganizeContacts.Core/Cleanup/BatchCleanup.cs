@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using OrganizeContacts.Core.Models;
 using OrganizeContacts.Core.Normalize;
+using OrganizeContacts.Core.Photos;
 
 namespace OrganizeContacts.Core.Cleanup;
 
@@ -13,6 +14,7 @@ public sealed class BatchCleanupReport
     public int PhonesNormalized { get; set; }
     public int EmailsCanonicalized { get; set; }
     public int RegexHits { get; set; }
+    public int PhotosStripped { get; set; }
     public int ContactsTouched { get; set; }
 
     public string Summary =>
@@ -61,6 +63,7 @@ public sealed class BatchCleanup
         bool dedupeCategories = true,
         bool normalizePhones = true,
         bool canonicalizeEmails = true,
+        bool stripPhotoMetadata = false,
         IReadOnlyList<RegexEdit>? regexEdits = null)
     {
         var report = new BatchCleanupReport();
@@ -102,6 +105,25 @@ public sealed class BatchCleanup
             {
                 var removed = DedupeStringList(c.Categories, StringComparer.OrdinalIgnoreCase);
                 if (removed > 0) { report.CategoriesDeduped += removed; touched = true; }
+            }
+
+            if (stripPhotoMetadata && c.PhotoBytes is { Length: > 0 })
+            {
+                var beforeLen = c.PhotoBytes.Length;
+                var stripped = PhotoSanitizer.StripMetadata(c.PhotoBytes, c.PhotoMimeType);
+                if (stripped.Length == 0)
+                {
+                    c.PhotoBytes = null;
+                    c.PhotoMimeType = null;
+                    report.PhotosStripped++;
+                    touched = true;
+                }
+                else if (stripped.Length != beforeLen)
+                {
+                    c.PhotoBytes = stripped;
+                    report.PhotosStripped++;
+                    touched = true;
+                }
             }
 
             if (regexEdits is { Count: > 0 })

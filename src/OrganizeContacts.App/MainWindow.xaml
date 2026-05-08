@@ -122,10 +122,21 @@
                         <Run Text="{Binding Contacts.Count, Mode=OneWay}"
                              Foreground="{StaticResource AccentAltBrush}" />
                     </TextBlock>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <ComboBox DockPanel.Dock="Right"
+                                  Width="180"
+                                  ItemsSource="{Binding ReviewQueues}"
+                                  SelectedItem="{Binding SelectedQueue}"
+                                  AutomationProperties.Name="Review queue filter"
+                                  Margin="6,0,0,0" />
+                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.Name="Search contacts"
+                                 ToolTip="Search by name, organization, email, phone, notes" />
+                    </DockPanel>
                     <Border Background="{StaticResource MantleBrush}"
                             BorderBrush="{StaticResource Surface0Brush}" BorderThickness="1"
                             CornerRadius="6">
-                        <ListBox ItemsSource="{Binding Contacts}"
+                        <ListBox ItemsSource="{Binding ContactsView}"
                                  SelectedItem="{Binding SelectedContact}"
                                  Background="Transparent" BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"

@@ -28,6 +28,7 @@
                 <CheckBox x:Name="DedupeCategoriesBox" IsChecked="True" Content="Dedupe categories"                                    Margin="0,4,0,0" Foreground="{StaticResource Subtext0Brush}" />
                 <CheckBox x:Name="NormalizePhonesBox"  IsChecked="True" Content="Normalize phones to E.164 (uses default region)"      Margin="0,4,0,0" Foreground="{StaticResource Subtext0Brush}" />
                 <CheckBox x:Name="CanonicalizeEmailsBox" IsChecked="True" Content="Canonicalize emails (provider profiles)"            Margin="0,4,0,0" Foreground="{StaticResource Subtext0Brush}" />
+                <CheckBox x:Name="StripPhotoMetadataBox" IsChecked="False" Content="Strip photo EXIF/metadata (JPEG + PNG)"            Margin="0,4,0,0" Foreground="{StaticResource Subtext0Brush}" />
 
                 <TextBlock FontWeight="SemiBold" Margin="0,18,0,4"
                            Foreground="{StaticResource Subtext1Brush}"

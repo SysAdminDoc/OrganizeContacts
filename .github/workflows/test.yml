@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore OrganizeContacts.sln
+
+      - name: Build (Release)
+        run: dotnet build OrganizeContacts.sln -c Release --no-restore -warnaserror
+
+      - name: Test
+        run: dotnet test tests/OrganizeContacts.Tests/OrganizeContacts.Tests.csproj -c Release --no-build --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/*.trx'
+
+      - name: Generate dependency manifest (SBOM-lite)
+        run: |
+          dotnet list OrganizeContacts.sln package --include-transitive > dependencies.txt
+          dotnet list OrganizeContacts.sln package --vulnerable --include-transitive > vulnerabilities.txt 2>&1 || $true
+          Get-Content vulnerabilities.txt
+        shell: pwsh
+
+      - name: Upload dependency manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-manifest
+          path: |
+            dependencies.txt
+            vulnerabilities.txt

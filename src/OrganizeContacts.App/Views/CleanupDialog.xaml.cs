@@ -13,6 +13,7 @@ public partial class CleanupDialog : Window
     public bool DedupeCategories => DedupeCategoriesBox.IsChecked == true;
     public bool NormalizePhones => NormalizePhonesBox.IsChecked == true;
     public bool CanonicalizeEmails => CanonicalizeEmailsBox.IsChecked == true;
+    public bool StripPhotoMetadata => StripPhotoMetadataBox.IsChecked == true;
     public RegexEdit? Regex { get; private set; }
 
     public CleanupDialog() => InitializeComponent();

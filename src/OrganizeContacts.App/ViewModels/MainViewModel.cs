@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
@@ -41,6 +43,26 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<DuplicateGroup> Duplicates { get; } = new();
     public ObservableCollection<ContactSource> Sources { get; } = new();
 
+    public ICollectionView ContactsView { get; }
+
+    public string[] ReviewQueues { get; } = new[]
+    {
+        "All",
+        "In a duplicate group",
+        "Stub (only a name)",
+        "Empty (no name)",
+        "High confidence duplicates",
+    };
+
+    [ObservableProperty]
+    private string _searchText = string.Empty;
+
+    [ObservableProperty]
+    private string _selectedQueue = "All";
+
+    partial void OnSearchTextChanged(string value) => ContactsView.Refresh();
+    partial void OnSelectedQueueChanged(string value) => ContactsView.Refresh();
+
     [ObservableProperty]
     private string _statusMessage = "Ready. Use Import to load a vCard (.vcf) file.";
 
@@ -75,6 +97,41 @@ public partial class MainViewModel : ObservableObject
         foreach (var s in _repo.ListSources()) Sources.Add(s);
         foreach (var c in _repo.ListContacts()) Contacts.Add(c);
         if (Contacts.Count > 0) RescanDuplicates();
+
+        ContactsView = CollectionViewSource.GetDefaultView(Contacts);
+        ContactsView.Filter = ContactPredicate;
+    }
+
+    private bool ContactPredicate(object? raw)
+    {
+        if (raw is not Contact c) return false;
+
+        if (!string.IsNullOrWhiteSpace(SearchText))
+        {
+            var needle = SearchText.Trim();
+            var hay =
+                (c.DisplayName ?? "") + " " +
+                (c.Organization ?? "") + " " +
+                string.Join(" ", c.Emails.Select(e => e.Address)) + " " +
+                string.Join(" ", c.Phones.Select(p => p.Raw)) + " " +
+                (c.Notes ?? "");
+            if (hay.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0) return false;
+        }
+
+        switch (SelectedQueue)
+        {
+            case "In a duplicate group":
+                return Duplicates.Any(g => g.Members.Any(m => m.Id == c.Id));
+            case "Stub (only a name)":
+                return c.Phones.Count == 0 && c.Emails.Count == 0 && !string.IsNullOrWhiteSpace(c.DisplayName);
+            case "Empty (no name)":
+                return string.IsNullOrWhiteSpace(c.DisplayName);
+            case "High confidence duplicates":
+                var grp = Duplicates.FirstOrDefault(g => g.Members.Any(m => m.Id == c.Id));
+                return grp is not null && grp.Confidence >= 0.85;
+            default:
+                return true;
+        }
     }
 
     private MatchRules GetMatchRules() => _settings.MatchProfile switch
@@ -361,6 +418,7 @@ public partial class MainViewModel : ObservableObject
             dedupeCategories: dlg.DedupeCategories,
             normalizePhones: dlg.NormalizePhones,
             canonicalizeEmails: dlg.CanonicalizeEmails,
+            stripPhotoMetadata: dlg.StripPhotoMetadata,
             regexEdits: dlg.Regex is null ? null : new[] { dlg.Regex });
 
         using var tx = _repo.BeginTransaction();
@@ -422,6 +480,7 @@ public partial class MainViewModel : ObservableObject
     {
         Duplicates.Clear();
         foreach (var g in _dedup.Find(Contacts)) Duplicates.Add(g);
+        ContactsView?.Refresh();
     }
 
     private void ReloadFromStore()

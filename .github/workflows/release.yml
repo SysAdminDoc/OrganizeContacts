@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g. 0.1.0)'
+        description: 'Version (e.g. 0.3.0)'
         required: true
-        default: '0.1.0'
+        default: '0.3.0'
 
 permissions:
   contents: write
@@ -25,10 +25,13 @@ jobs:
       - name: Restore
         run: dotnet restore OrganizeContacts.sln
 
-      - name: Build (Release)
-        run: dotnet build OrganizeContacts.sln -c Release --no-restore
+      - name: Build (Release, warnings as errors)
+        run: dotnet build OrganizeContacts.sln -c Release --no-restore -warnaserror
 
-      - name: Publish
+      - name: Test
+        run: dotnet test tests/OrganizeContacts.Tests/OrganizeContacts.Tests.csproj -c Release --no-build
+
+      - name: Publish framework-dependent (no self-contained runtime)
         run: |
           dotnet publish src/OrganizeContacts.App/OrganizeContacts.App.csproj `
             -c Release `
@@ -36,16 +39,28 @@ jobs:
             --self-contained false `
             -o publish/OrganizeContacts-${{ github.event.inputs.version }}-win-x64
 
-      - name: Zip artifact
+      - name: Publish portable zip
         run: |
           Compress-Archive `
             -Path publish/OrganizeContacts-${{ github.event.inputs.version }}-win-x64/* `
             -DestinationPath OrganizeContacts-${{ github.event.inputs.version }}-win-x64.zip
 
+      - name: Generate SBOM (dependency manifest)
+        run: |
+          dotnet list OrganizeContacts.sln package --include-transitive > sbom-${{ github.event.inputs.version }}.txt
+          dotnet list OrganizeContacts.sln package --vulnerable --include-transitive >> sbom-${{ github.event.inputs.version }}.txt 2>&1 || $true
+        shell: pwsh
+
       - name: SHA-256
         run: |
-          $hash = Get-FileHash OrganizeContacts-${{ github.event.inputs.version }}-win-x64.zip -Algorithm SHA256
-          "$($hash.Hash)  $(Split-Path $hash.Path -Leaf)" | Out-File -Encoding ascii SHA256SUMS.txt
+          $files = @(
+            "OrganizeContacts-${{ github.event.inputs.version }}-win-x64.zip",
+            "sbom-${{ github.event.inputs.version }}.txt"
+          )
+          $files | ForEach-Object {
+            $h = Get-FileHash $_ -Algorithm SHA256
+            "$($h.Hash)  $(Split-Path $h.Path -Leaf)"
+          } | Out-File -Encoding ascii SHA256SUMS.txt
 
       - name: Create / update release
         env:
@@ -61,5 +76,6 @@ jobs:
           }
           gh release upload $tag `
             OrganizeContacts-${{ github.event.inputs.version }}-win-x64.zip `
+            sbom-${{ github.event.inputs.version }}.txt `
             SHA256SUMS.txt `
             --clobber

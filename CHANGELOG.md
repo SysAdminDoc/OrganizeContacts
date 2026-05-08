@@ -18,6 +18,14 @@ Format breadth and migration round-trip.
 - Cleanup runs are rollback-able via an automatically-captured pre-mutation snapshot.
 - Added "Cleanup…" and "Auto-merge" header buttons.
 - 6 new xunit tests cover BatchCleanup + AutoMergeService (total: 52 passing).
+- Added `PhotoSanitizer` (raw byte-walker; no image-decoder dep): strips JPEG `APP1..APP15` + `COM` segments and PNG ancillary chunks (`tEXt`/`iTXt`/`zTXt`/`tIME`/`eXIf`/`gAMA`/`cHRM`/`iCCP`/`sRGB`). 4 MB photo cap. Exposed as a "Strip photo EXIF/metadata" toggle in the Cleanup dialog. 6 new tests.
+- Added `CredentialVault` (DPAPI-backed encrypted JSON store; CurrentUser scope; Windows-only). Backing dependency: `System.Security.Cryptography.ProtectedData` 9.0.0. 2 new tests.
+- Added live search bar + review queue selector (All / In a duplicate group / Stub / Empty / High confidence) bound to `ContactsView` ICollectionView.
+- Added `CONTRIBUTING.md`, `SECURITY.md`, `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.md`.
+- Added `.github/workflows/test.yml` CI pipeline: builds with `-warnaserror`, runs xunit, uploads `test-results.trx`, generates dependency manifest + vulnerable-package report on every push and PR.
+- Hardened `release.yml`: now runs tests as a gate, builds with `-warnaserror`, attaches an SBOM file (`sbom-vX.Y.Z.txt`) and SHA-256 sums for both ZIP and SBOM.
+- Added `docs/MIGRATION_RECIPES.md` covering Google, iCloud, Outlook for Windows, Outlook on the web, Android, and Thunderbird/CardBook export-and-import flows.
+- Total tests: 60 passing.
 
 ## v0.2.0 — 2026-05-07 (in-progress)
 

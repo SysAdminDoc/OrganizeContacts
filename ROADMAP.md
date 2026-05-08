@@ -216,7 +216,7 @@ Tiers:
    - Novelty: parity.
    - Justification: automation should start where the losing card has no unique information.
 
-5. Photos: parse, preserve, normalize, strip metadata, and perceptual-hash duplicate photos.
+5. [x] Photos: parse, preserve, normalize, strip metadata, and perceptual-hash duplicate photos. *(v0.3.0 - PhotoSanitizer strips JPEG APP1..APP15 + PNG ancillary chunks via raw byte walker, no image-decoder dep; 4MB safety cap; integrated into BatchCleanup. Perceptual hashing deferred until ImageSharp/CoenM.ImageHash review.)*
    - Sources: L02, S18-S20, S22, S30, S59, S60.
    - Impact 4, effort 4, risk high.
    - Dependencies: image dependency security/license review and memory limits.
@@ -230,28 +230,28 @@ Tiers:
    - Novelty: parity.
    - Justification: iCloud, Google, Nextcloud, Baikal, and Radicale are major contact sources, but write sync should wait.
 
-7. Credential storage using Windows Credential Manager/DPAPI.
+7. [x] Credential storage using Windows Credential Manager/DPAPI. *(v0.3.0 - CredentialVault uses System.Security.Cryptography.ProtectedData with CurrentUser scope; encrypted JSON store; tests verify round-trip and at-rest non-plaintext)*
    - Sources: S28, S29, S50.
    - Impact 4, effort 3, risk high.
    - Dependencies: CardDAV client.
    - Novelty: parity.
    - Justification: local-first does not mean plaintext passwords in config.
 
-8. Search, saved filters, and review queues.
+8. [x] Search, saved filters, and review queues. *(v0.3.0 - SearchText filter across DisplayName/Org/email/phone/notes + ReviewQueue selector for All / In a duplicate group / Stub / Empty / High confidence)*
    - Sources: L02, S17, S18, S20, S22, S35.
    - Impact 4, effort 3, risk low.
    - Dependencies: persistent indexes.
    - Novelty: parity.
    - Justification: users need to review "possible duplicate", "stub", "empty", and "high-confidence" queues separately.
 
-9. Distribution hardening: installer, portable zip, Authenticode signing, SBOM, checksums, and upgrade notes.
+9. [~] Distribution hardening: installer, portable zip, Authenticode signing, SBOM, checksums, and upgrade notes. *(v0.3.0 - portable zip + SBOM (`dotnet list package` manifest) + SHA256SUMS + warnings-as-errors release pipeline. Authenticode signing and a real installer (.msi/.msix) are still pending.)*
    - Sources: L06, S29, S63, S61, S62.
    - Impact 4, effort 4, risk medium.
    - Dependencies: release workflow redesign.
    - Novelty: parity.
    - Justification: a local desktop data tool must be easy to verify and install safely.
 
-10. Project hygiene: `global.json`, `CONTRIBUTING.md`, issue templates, `SECURITY.md`, dependency scanning, and CI tests.
+10. [x] Project hygiene: `global.json`, `CONTRIBUTING.md`, issue templates, `SECURITY.md`, dependency scanning, and CI tests. *(v0.3.0 - all six landed; CI workflow runs `dotnet list package --vulnerable --include-transitive` on every push/PR)*
     - Sources: L06, S11, S21, S22, S61-S64.
     - Impact 4, effort 2, risk low.
     - Dependencies: test project.

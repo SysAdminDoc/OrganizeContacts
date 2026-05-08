@@ -260,7 +260,7 @@ Tiers:
 
 ### Later
 
-1. Outlook PST/OST and MSG import.
+1. [defer v0.4] Outlook PST/OST and MSG import. *(Requires LibPST/Aspose-class dependency review; out-of-scope for the v0.3 stabilization pass per the roadmap's "high-risk dependency areas are isolated" criterion.)*
    - Sources: L01, L02, S09, S34, S36.
    - Impact 4, effort 5, risk high.
    - Dependencies: license review, safe parser sandbox, import preview.
@@ -274,21 +274,21 @@ Tiers:
    - Novelty: parity.
    - Justification: Thunderbird users are a natural privacy-first segment, but CardDAV/vCard work covers much of this first.
 
-3. Address normalization with offline rules and optional USPS opt-in.
+3. [defer v0.4] Address normalization with offline rules and optional USPS opt-in. *(External validation must stay opt-in per the local-first posture; defer until offline rule corpus is selected.)*
    - Sources: L02, S20, S22, S51-S53.
    - Impact 3, effort 4, risk high.
    - Dependencies: undo and preview.
    - Novelty: parity.
    - Justification: useful for data quality, but external validation must stay explicit and opt-in.
 
-4. LAN CardDAV server/export mode.
+4. [defer v0.4] LAN CardDAV server/export mode. *(Server product surface — auth, TLS guidance, conflict handling — distinct from the read-only client we already shipped. Defer.)*
    - Sources: L02, S02, S25, S26, S29, S65.
    - Impact 4, effort 5, risk high.
    - Dependencies: stable model, auth, TLS guidance, conflict handling.
    - Novelty: leapfrog.
    - Justification: publishing cleaned contacts over LAN matches the local-first moat, but it is a server product surface.
 
-5. Plugin SDK for importers/exporters.
+5. [defer v0.4] Plugin SDK for importers/exporters. *(Roadmap criterion: "Wait until core contracts settle." IContactImporter is now stable; SDK packaging + sandbox policy still pending.)*
    - Sources: L02, S25, S28, S65.
    - Impact 3, effort 5, risk high.
    - Dependencies: stable core interfaces and sandbox policy.
@@ -309,21 +309,21 @@ Tiers:
    - Novelty: forward-looking.
    - Justification: new JSON contact standards matter, but current user data is still mostly vCard/CSV/CardDAV.
 
-8. Cross-platform Avalonia shell.
+8. [defer v0.4] Cross-platform Avalonia shell. *(Roadmap criterion: "plausible once Windows product-market fit is proven." Core is already UI-free, so the path is open.)*
    - Sources: L01, L02, S23, S24, S27.
    - Impact 3, effort 5, risk high.
    - Dependencies: UI-free core and stable desktop workflows.
    - Novelty: parity.
    - Justification: plausible once Windows product-market fit is proven.
 
-9. Localization framework.
+9. [defer v0.4] Localization framework. *(Roadmap criterion: "data is global; UI can follow core". XAML literals are still English; no resx scaffold yet.)*
    - Sources: L02, S17, S27, S30, S62.
    - Impact 3, effort 4, risk medium.
    - Dependencies: UI string resource pass.
    - Novelty: parity.
    - Justification: contact data is global, but parser correctness and accessibility precede translated UI.
 
-10. Mobile read-only companion over LAN.
+10. [defer v0.4] Mobile read-only companion over LAN. *("Far outside the current WPF desktop scope." Defer until LAN server work ships.)*
     - Sources: L02, S30, S50.
     - Impact 2, effort 5, risk high.
     - Dependencies: LAN server, auth, mobile stack decision.
@@ -478,6 +478,15 @@ Abbreviations: I = impact, E = effort, R = risk, N = novelty. Fit is "Y", "N", o
 | F88 | Mobile companion | mobile | rare | L02, S30 | Maybe | 2 | 5 | High | LAN server | Leapfrog | Later | Too broad before desktop core. |
 | F89 | Active-learning scorer | dedup | advanced | S51-S53 | Maybe | 3 | 5 | Med | labels | Leapfrog | Under Consideration | Needs user-labeled data and clear UX. |
 | F90 | Full CRM features | UX, data | common CRM | S27 | N | 2 | 5 | Med | many | Parity | Rejected | Dilutes dedupe/import mission. |
+
+## Status snapshot (2026-05-07)
+
+- **Now tier (12 / 12)** — shipped in v0.2.0.
+- **Next tier (10 / 10)** — shipped in v0.3.0.
+- **Later tier (3 / 10)** — LDIF (#2), CLI (#6), jCard (#7) shipped in v0.3.0; the remaining seven are explicitly deferred to v0.4 with the rationale recorded inline.
+- **Under Consideration / Rejected** — unchanged; the active-learning scorer, business-card OCR, multi-user collab, WebDAV Push, and social enrichment remain gated by the criteria stated in this file.
+
+The Release 0.2 + 0.3 goals from the Delivery Sequence below have both shipped.
 
 ## Delivery Sequence
 

@@ -1,5 +1,7 @@
 # OrganizeContacts
 
+![OrganizeContacts brand banner](branding/organizecontacts-banner.svg)
+
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/SysAdminDoc/OrganizeContacts/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d4.svg)](https://github.com/SysAdminDoc/OrganizeContacts)

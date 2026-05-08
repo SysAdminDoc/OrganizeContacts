@@ -77,12 +77,12 @@ visible.
 
 ## Integration Checklist (after picking final logo)
 
-- [ ] Save final 1024×1024 master to `branding/logo-master.png`.
-- [ ] Export `branding/logo.png` (square, 512×512) → root + README reference.
-- [ ] Export `branding/banner.png` (wide, 1280×400) → root + README reference.
-- [ ] Generate `.ico` for WPF window (`logo.ico`, multi-resolution 16/32/48/64/128/256).
-- [ ] Reference the `.ico` in `OrganizeContacts.App.csproj` via `<ApplicationIcon>`.
+- [x] Save final 1024×1024 master to `branding/logo-master.png`.
+- [x] Export `branding/logo.png` (square, 512×512) for repo branding.
+- [x] Add source SVGs: `branding/organizecontacts-icon.svg` and `branding/organizecontacts-banner.svg`.
+- [x] Generate `.ico` for WPF window (`logo.ico`, multi-resolution 16/24/32/48/64/128/256).
+- [x] Reference the `.ico` in `OrganizeContacts.App.csproj` via `<ApplicationIcon>`.
+- [x] Update README badges section to include the banner at the top.
 - [ ] Add favicon if a project page is published later.
-- [ ] Update README badges section to include the banner at the top.
-- [ ] Verify alpha channel: open the saved PNG over a colored background and
+- [x] Verify alpha channel: open the saved PNG over a colored background and
       confirm no checkerboard / solid bg leaks through.

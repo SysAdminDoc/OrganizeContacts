@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">OrganizeContacts app icon</title>
+  <desc id="desc">Overlapping contact cards with a resolved duplicate check mark.</desc>
+  <defs>
+    <linearGradient id="card" x1="188" y1="238" x2="836" y2="676" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#CBA6F7"/>
+      <stop offset="1" stop-color="#89B4FA"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="256" y1="208" x2="768" y2="768" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#89DCEB"/>
+      <stop offset="1" stop-color="#CBA6F7"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="28" stdDeviation="32" flood-color="#11111B" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <rect x="112" y="112" width="800" height="800" rx="188" fill="#181825"/>
+  <rect x="112" y="112" width="800" height="800" rx="188" fill="none" stroke="#313244" stroke-width="22"/>
+  <path d="M264 184h496c44 0 80 36 80 80v520c0 44-36 80-80 80H264c-44 0-80-36-80-80V264c0-44 36-80 80-80Z"
+        fill="none" stroke="url(#edge)" stroke-width="18" opacity="0.55"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="270" y="336" width="520" height="356" rx="58" fill="#45475A" opacity="0.62"/>
+    <rect x="188" y="238" width="648" height="438" rx="66" fill="url(#card)"/>
+    <rect x="220" y="270" width="584" height="374" rx="48" fill="#1E1E2E" opacity="0.16"/>
+  </g>
+
+  <circle cx="348" cy="432" r="68" fill="#11111B" opacity="0.78"/>
+  <path d="M240 582c20-92 78-138 108-138s88 46 108 138c5 22-12 42-35 42H275c-23 0-40-20-35-42Z"
+        fill="#11111B" opacity="0.78"/>
+
+  <rect x="512" y="342" width="206" height="34" rx="17" fill="#11111B" opacity="0.68"/>
+  <rect x="512" y="426" width="238" height="28" rx="14" fill="#11111B" opacity="0.46"/>
+  <rect x="512" y="498" width="178" height="28" rx="14" fill="#11111B" opacity="0.46"/>
+  <rect x="512" y="570" width="222" height="28" rx="14" fill="#11111B" opacity="0.46"/>
+
+  <circle cx="758" cy="282" r="76" fill="#A6E3A1"/>
+  <path d="M719 282l28 29 52-61" fill="none" stroke="#11111B" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

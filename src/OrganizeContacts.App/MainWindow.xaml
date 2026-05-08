@@ -4,6 +4,7 @@
         xmlns:vm="clr-namespace:OrganizeContacts.App.ViewModels"
         xmlns:m="clr-namespace:OrganizeContacts.Core.Models;assembly=OrganizeContacts.Core"
         Title="OrganizeContacts"
+        Icon="Assets/OrganizeContacts.ico"
         Height="800" Width="1320"
         MinHeight="620" MinWidth="1040"
         WindowStartupLocation="CenterScreen">
@@ -46,10 +47,12 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="16" Height="16"
-                                Background="{DynamicResource AccentBrush}"
-                                CornerRadius="8"
-                                Margin="0,0,12,0" />
+                        <Image Width="34"
+                               Height="34"
+                               Source="Assets/OrganizeContacts-64.png"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               Margin="0,0,12,0"
+                               AutomationProperties.Name="OrganizeContacts logo" />
                         <StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="OrganizeContacts"

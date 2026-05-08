@@ -15,7 +15,20 @@ public sealed class ContactRepository : IDisposable
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         _conn = new SqliteConnection($"Data Source={dbPath};Foreign Keys=True");
         _conn.Open();
+        ApplyConnectionPragmas(_conn);
         Migrations.Apply(_conn);
+    }
+
+    /// <summary>Connection-level pragmas applied on every open. WAL gives us non-blocking
+    /// reads while a write is in flight (so a UI-thread ListContacts doesn't stall behind a
+    /// background import), `synchronous=NORMAL` is the recommended pair for desktop-grade
+    /// crash safety, and `busy_timeout` makes the few writes that DO contend fail with a
+    /// retry-friendly delay instead of an immediate `SQLITE_BUSY`.</summary>
+    private static void ApplyConnectionPragmas(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+        cmd.ExecuteNonQuery();
     }
 
     public SqliteConnection Connection => _conn;
@@ -164,22 +177,151 @@ public sealed class ContactRepository : IDisposable
         return c;
     }
 
+    /// <summary>True iff a row with this id exists in the contacts table, even when soft-deleted.
+    /// Use to decide between INSERT and UPDATE during restore — INSERT-over-soft-deleted-row would
+    /// throw a primary-key conflict.</summary>
+    public bool ExistsAnyState(Guid id)
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "SELECT 1 FROM contacts WHERE id = $id LIMIT 1;";
+        cmd.Parameters.AddWithValue("$id", id.ToString());
+        return cmd.ExecuteScalar() is not null;
+    }
+
     public IReadOnlyList<Contact> ListContacts()
     {
         var list = new List<Contact>();
-        using var cmd = _conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT id, source_id, import_id, uid, rev, formatted_name, given_name, family_name,
-                   additional_names, honorific_prefix, honorific_suffix, nickname, organization,
-                   title, birthday, anniversary, notes, photo_bytes, photo_mime, source_file,
-                   source_format, imported_utc, updated_utc, custom_fields_json
-            FROM contacts WHERE deleted_utc IS NULL ORDER BY formatted_name COLLATE NOCASE;
-            """;
-        using var rdr = cmd.ExecuteReader();
-        while (rdr.Read()) list.Add(ReadContactRow(rdr));
-        rdr.Close();
-        foreach (var c in list) LoadChildren(c);
+        using (var cmd = _conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT id, source_id, import_id, uid, rev, formatted_name, given_name, family_name,
+                       additional_names, honorific_prefix, honorific_suffix, nickname, organization,
+                       title, birthday, anniversary, notes, photo_bytes, photo_mime, source_file,
+                       source_format, imported_utc, updated_utc, custom_fields_json
+                FROM contacts WHERE deleted_utc IS NULL ORDER BY formatted_name COLLATE NOCASE;
+                """;
+            using var rdr = cmd.ExecuteReader();
+            while (rdr.Read()) list.Add(ReadContactRow(rdr));
+        }
+
+        // N+1 → bulk load: previously each contact ran 5 child queries (phones, emails,
+        // addresses, urls, categories), so 5,000 contacts = 25,000 round trips.  Now we
+        // run 5 total scans and bucket by contact_id, dropping it to a near-flat cost.
+        if (list.Count == 0) return list;
+        var byId = new Dictionary<Guid, Contact>(list.Count);
+        foreach (var c in list) byId[c.Id] = c;
+        BulkLoadChildren(byId);
         return list;
+    }
+
+    /// <summary>Scan each child table once and dispatch rows into the matching parent contact.
+    /// Filters on `deleted_utc IS NULL` so soft-deleted parents never receive children.</summary>
+    private void BulkLoadChildren(Dictionary<Guid, Contact> byId)
+    {
+        // Phones
+        using (var cmd = _conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT p.contact_id, p.raw, p.digits, p.e164, p.kind, p.is_preferred, p.source_id
+                FROM phones p
+                JOIN contacts c ON c.id = p.contact_id AND c.deleted_utc IS NULL;
+                """;
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                if (!byId.TryGetValue(Guid.Parse(r.GetString(0)), out var c)) continue;
+                c.Phones.Add(new PhoneNumber
+                {
+                    Raw = r.GetString(1),
+                    Digits = r.GetString(2),
+                    E164 = r.IsDBNull(3) ? null : r.GetString(3),
+                    Kind = Enum.TryParse<PhoneKind>(r.GetString(4), out var k) ? k : PhoneKind.Other,
+                    IsPreferred = r.GetInt32(5) != 0,
+                    SourceId = r.IsDBNull(6) ? null : Guid.Parse(r.GetString(6)),
+                });
+            }
+        }
+
+        // Emails
+        using (var cmd = _conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT e.contact_id, e.address, e.canonical, e.kind, e.is_preferred, e.source_id
+                FROM emails e
+                JOIN contacts c ON c.id = e.contact_id AND c.deleted_utc IS NULL;
+                """;
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                if (!byId.TryGetValue(Guid.Parse(r.GetString(0)), out var c)) continue;
+                c.Emails.Add(new EmailAddress
+                {
+                    Address = r.GetString(1),
+                    CanonicalOverride = r.IsDBNull(2) ? null : r.GetString(2),
+                    Kind = Enum.TryParse<EmailKind>(r.GetString(3), out var k) ? k : EmailKind.Other,
+                    IsPreferred = r.GetInt32(4) != 0,
+                    SourceId = r.IsDBNull(5) ? null : Guid.Parse(r.GetString(5)),
+                });
+            }
+        }
+
+        // Addresses
+        using (var cmd = _conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT a.contact_id, a.po_box, a.extended, a.street, a.locality, a.region,
+                       a.postal_code, a.country, a.kind, a.source_id
+                FROM addresses a
+                JOIN contacts c ON c.id = a.contact_id AND c.deleted_utc IS NULL;
+                """;
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                if (!byId.TryGetValue(Guid.Parse(r.GetString(0)), out var c)) continue;
+                c.Addresses.Add(new PostalAddress
+                {
+                    PoBox = r.IsDBNull(1) ? null : r.GetString(1),
+                    Extended = r.IsDBNull(2) ? null : r.GetString(2),
+                    Street = r.IsDBNull(3) ? null : r.GetString(3),
+                    Locality = r.IsDBNull(4) ? null : r.GetString(4),
+                    Region = r.IsDBNull(5) ? null : r.GetString(5),
+                    PostalCode = r.IsDBNull(6) ? null : r.GetString(6),
+                    Country = r.IsDBNull(7) ? null : r.GetString(7),
+                    Kind = Enum.TryParse<AddressKind>(r.GetString(8), out var k) ? k : AddressKind.Other,
+                    SourceId = r.IsDBNull(9) ? null : Guid.Parse(r.GetString(9)),
+                });
+            }
+        }
+
+        // URLs
+        using (var cmd = _conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT u.contact_id, u.value FROM urls u
+                JOIN contacts c ON c.id = u.contact_id AND c.deleted_utc IS NULL;
+                """;
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                if (!byId.TryGetValue(Guid.Parse(r.GetString(0)), out var c)) continue;
+                c.Urls.Add(r.GetString(1));
+            }
+        }
+
+        // Categories
+        using (var cmd = _conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT g.contact_id, g.value FROM categories g
+                JOIN contacts c ON c.id = g.contact_id AND c.deleted_utc IS NULL;
+                """;
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                if (!byId.TryGetValue(Guid.Parse(r.GetString(0)), out var c)) continue;
+                c.Categories.Add(r.GetString(1));
+            }
+        }
     }
 
     private static Contact ReadContactRow(SqliteDataReader rdr)
@@ -300,59 +442,98 @@ public sealed class ContactRepository : IDisposable
 
     public void InsertContact(Contact c, SqliteTransaction? tx = null)
     {
-        using var cmd = _conn.CreateCommand();
-        cmd.Transaction = tx;
-        cmd.CommandText = """
-            INSERT INTO contacts (
-                id, source_id, import_id, uid, rev, formatted_name, given_name, family_name,
-                additional_names, honorific_prefix, honorific_suffix, nickname, organization,
-                title, birthday, anniversary, notes, photo_bytes, photo_mime, source_file,
-                source_format, imported_utc, updated_utc, custom_fields_json
-            ) VALUES (
-                $id, $src, $imp, $uid, $rev, $fn, $gn, $fam,
-                $add, $hp, $hs, $nick, $org,
-                $title, $bday, $anniv, $notes, $photo, $pmime, $sfile,
-                $sfmt, $imported, $updated, $custom
-            );
-            """;
-        BindContactParams(cmd, c);
-        cmd.ExecuteNonQuery();
-        ReplaceChildren(c, tx);
+        // If the caller didn't supply a transaction, wrap the parent INSERT and the child
+        // ReplaceChildren in our own one — otherwise a SQL failure mid-loop would leave a
+        // parent row with stale-or-missing children.
+        var ownsTx = tx is null;
+        var implicitTx = ownsTx ? _conn.BeginTransaction() : null;
+        var effective = tx ?? implicitTx!;
+        try
+        {
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.Transaction = effective;
+                cmd.CommandText = """
+                    INSERT INTO contacts (
+                        id, source_id, import_id, uid, rev, formatted_name, given_name, family_name,
+                        additional_names, honorific_prefix, honorific_suffix, nickname, organization,
+                        title, birthday, anniversary, notes, photo_bytes, photo_mime, source_file,
+                        source_format, imported_utc, updated_utc, custom_fields_json
+                    ) VALUES (
+                        $id, $src, $imp, $uid, $rev, $fn, $gn, $fam,
+                        $add, $hp, $hs, $nick, $org,
+                        $title, $bday, $anniv, $notes, $photo, $pmime, $sfile,
+                        $sfmt, $imported, $updated, $custom
+                    );
+                    """;
+                BindContactParams(cmd, c);
+                cmd.ExecuteNonQuery();
+            }
+            ReplaceChildren(c, effective);
+            implicitTx?.Commit();
+        }
+        catch
+        {
+            implicitTx?.Rollback();
+            throw;
+        }
+        finally
+        {
+            implicitTx?.Dispose();
+        }
     }
 
     public void UpdateContact(Contact c, SqliteTransaction? tx = null)
     {
-        using var cmd = _conn.CreateCommand();
-        cmd.Transaction = tx;
-        cmd.CommandText = """
-            UPDATE contacts SET
-                source_id = $src,
-                import_id = $imp,
-                uid = $uid,
-                rev = $rev,
-                formatted_name = $fn,
-                given_name = $gn,
-                family_name = $fam,
-                additional_names = $add,
-                honorific_prefix = $hp,
-                honorific_suffix = $hs,
-                nickname = $nick,
-                organization = $org,
-                title = $title,
-                birthday = $bday,
-                anniversary = $anniv,
-                notes = $notes,
-                photo_bytes = $photo,
-                photo_mime = $pmime,
-                source_file = $sfile,
-                source_format = $sfmt,
-                updated_utc = $updated,
-                custom_fields_json = $custom
-            WHERE id = $id;
-            """;
-        BindContactParams(cmd, c);
-        cmd.ExecuteNonQuery();
-        ReplaceChildren(c, tx);
+        var ownsTx = tx is null;
+        var implicitTx = ownsTx ? _conn.BeginTransaction() : null;
+        var effective = tx ?? implicitTx!;
+        try
+        {
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.Transaction = effective;
+                cmd.CommandText = """
+                    UPDATE contacts SET
+                        source_id = $src,
+                        import_id = $imp,
+                        uid = $uid,
+                        rev = $rev,
+                        formatted_name = $fn,
+                        given_name = $gn,
+                        family_name = $fam,
+                        additional_names = $add,
+                        honorific_prefix = $hp,
+                        honorific_suffix = $hs,
+                        nickname = $nick,
+                        organization = $org,
+                        title = $title,
+                        birthday = $bday,
+                        anniversary = $anniv,
+                        notes = $notes,
+                        photo_bytes = $photo,
+                        photo_mime = $pmime,
+                        source_file = $sfile,
+                        source_format = $sfmt,
+                        updated_utc = $updated,
+                        custom_fields_json = $custom
+                    WHERE id = $id;
+                    """;
+                BindContactParams(cmd, c);
+                cmd.ExecuteNonQuery();
+            }
+            ReplaceChildren(c, effective);
+            implicitTx?.Commit();
+        }
+        catch
+        {
+            implicitTx?.Rollback();
+            throw;
+        }
+        finally
+        {
+            implicitTx?.Dispose();
+        }
     }
 
     public void SoftDeleteContact(Guid id, SqliteTransaction? tx = null)

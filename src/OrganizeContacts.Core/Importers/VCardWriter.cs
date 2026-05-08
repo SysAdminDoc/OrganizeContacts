@@ -67,20 +67,20 @@ public sealed class VCardWriter
 
         foreach (var p in c.Phones)
         {
-            var paramStr = BuildTypeParams("TEL", p.Kind.ToString().ToUpperInvariant(), p.IsPreferred);
+            var paramStr = BuildTypeParams(p.Kind.ToString().ToUpperInvariant(), p.IsPreferred);
             var v = string.IsNullOrEmpty(p.E164) ? p.Raw : p.E164!;
             AppendLine(sb, $"TEL{paramStr}:{Escape(v)}");
         }
 
         foreach (var e in c.Emails)
         {
-            var paramStr = BuildTypeParams("EMAIL", e.Kind.ToString().ToUpperInvariant(), e.IsPreferred);
+            var paramStr = BuildTypeParams(e.Kind.ToString().ToUpperInvariant(), e.IsPreferred);
             AppendLine(sb, $"EMAIL{paramStr}:{Escape(e.Address)}");
         }
 
         foreach (var a in c.Addresses)
         {
-            var paramStr = BuildTypeParams("ADR", a.Kind.ToString().ToUpperInvariant(), false);
+            var paramStr = BuildTypeParams(a.Kind.ToString().ToUpperInvariant(), false);
             var adr = string.Join(';', new[]
             {
                 a.PoBox ?? string.Empty,
@@ -125,7 +125,7 @@ public sealed class VCardWriter
         AppendLine(sb, "END:VCARD");
     }
 
-    private static string BuildTypeParams(string propName, string type, bool pref)
+    private static string BuildTypeParams(string type, bool pref)
     {
         var bits = new List<string>();
         if (!string.IsNullOrEmpty(type) && !type.Equals("OTHER", StringComparison.OrdinalIgnoreCase))
@@ -172,24 +172,72 @@ public sealed class VCardWriter
         return sb.ToString();
     }
 
-    /// <summary>RFC 6350 line folding at 75 octets.</summary>
+    /// <summary>
+    /// RFC 6350 §3.2 line folding at 75 octets (NOT chars). Continuations are prefixed
+    /// with a single space, and we only break on UTF-16 code-unit boundaries that round-trip
+    /// through UTF-8 — never inside a surrogate pair, never mid-codepoint.
+    /// </summary>
     private static void AppendLine(StringBuilder sb, string line)
     {
-        if (line.Length <= 75)
+        const int firstLineLimit = 75;
+        const int contLimit = 74; // 1 leading space + 74 = 75 octets
+        if (Encoding.UTF8.GetByteCount(line) <= firstLineLimit)
         {
             sb.Append(line).Append("\r\n");
             return;
         }
-        var i = 0;
+
         var first = true;
+        int i = 0;
         while (i < line.Length)
         {
-            var len = first ? 75 : 74;
-            var take = Math.Min(len, line.Length - i);
+            var limit = first ? firstLineLimit : contLimit;
+            var take = OctetsThatFit(line, i, limit);
+            if (take == 0) break; // single character exceeds limit; emit what we have
             if (!first) sb.Append(' ');
             sb.Append(line, i, take).Append("\r\n");
             i += take;
             first = false;
         }
+    }
+
+    /// <summary>Returns the largest character count from <paramref name="start"/> that
+    /// encodes to no more than <paramref name="maxOctets"/> bytes in UTF-8 and does not
+    /// split a surrogate pair.</summary>
+    private static int OctetsThatFit(string s, int start, int maxOctets)
+    {
+        var bytes = 0;
+        var taken = 0;
+        for (int i = start; i < s.Length; )
+        {
+            int cp;
+            int codeUnits;
+            if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+            {
+                cp = char.ConvertToUtf32(s[i], s[i + 1]);
+                codeUnits = 2;
+            }
+            else
+            {
+                cp = s[i];
+                codeUnits = 1;
+            }
+
+            int cpBytes =
+                cp < 0x80    ? 1 :
+                cp < 0x800   ? 2 :
+                cp < 0x10000 ? 3 : 4;
+
+            if (bytes + cpBytes > maxOctets) break;
+            bytes += cpBytes;
+            taken += codeUnits;
+            i += codeUnits;
+        }
+        // Guarantee progress when even one codepoint exceeds the limit.
+        if (taken == 0 && start < s.Length)
+        {
+            taken = char.IsHighSurrogate(s[start]) && start + 1 < s.Length ? 2 : 1;
+        }
+        return taken;
     }
 }

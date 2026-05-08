@@ -23,18 +23,25 @@ public sealed class HistoryStore
 
     public long RecordUndo(string op, object forward, object inverse, string? label = null)
     {
-        using var cmd = _repo.Connection.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO undo_journal (ts_utc, op, label, forward, inverse, applied)
-            VALUES ($ts, $op, $label, $fwd, $inv, 1);
-            SELECT last_insert_rowid();
-            """;
-        cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("$op", op);
-        cmd.Parameters.AddWithValue("$label", (object?)label ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$fwd", JsonSerializer.Serialize(forward));
-        cmd.Parameters.AddWithValue("$inv", JsonSerializer.Serialize(inverse));
-        return Convert.ToInt64(cmd.ExecuteScalar());
+        // Two-step on purpose: relying on multi-statement ExecuteScalar to surface
+        // last_insert_rowid() is fragile (the provider only guarantees the first
+        // result-producing statement; it works today but isn't documented).
+        using (var ins = _repo.Connection.CreateCommand())
+        {
+            ins.CommandText = """
+                INSERT INTO undo_journal (ts_utc, op, label, forward, inverse, applied)
+                VALUES ($ts, $op, $label, $fwd, $inv, 1);
+                """;
+            ins.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
+            ins.Parameters.AddWithValue("$op", op);
+            ins.Parameters.AddWithValue("$label", (object?)label ?? DBNull.Value);
+            ins.Parameters.AddWithValue("$fwd", JsonSerializer.Serialize(forward));
+            ins.Parameters.AddWithValue("$inv", JsonSerializer.Serialize(inverse));
+            ins.ExecuteNonQuery();
+        }
+        using var pick = _repo.Connection.CreateCommand();
+        pick.CommandText = "SELECT last_insert_rowid();";
+        return Convert.ToInt64(pick.ExecuteScalar());
     }
 
     public IReadOnlyList<UndoEntry> ListUndo(int limit = 200)

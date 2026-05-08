@@ -87,11 +87,20 @@ public sealed class RollbackService
         }
 
         // Restore the prior state of contacts that existed before the import.
+        // We must use ExistsAnyState rather than GetById here: a contact that was soft-deleted
+        // post-import still has its row, and an INSERT would fail on the primary-key conflict.
+        // For soft-deleted rows we both UPDATE (restoring fields) and clear the deleted_utc tombstone.
         foreach (var c in snapshot)
         {
-            var still = _repo.GetById(c.Id);
-            if (still is null) _repo.InsertContact(c, tx);
-            else _repo.UpdateContact(c, tx);
+            if (_repo.ExistsAnyState(c.Id))
+            {
+                _repo.UpdateContact(c, tx);
+                _repo.RestoreContact(c.Id, tx);
+            }
+            else
+            {
+                _repo.InsertContact(c, tx);
+            }
         }
 
         using (var cmd = _repo.Connection.CreateCommand())

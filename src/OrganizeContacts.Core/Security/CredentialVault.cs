@@ -50,22 +50,35 @@ public sealed class CredentialVault
         return true;
     }
 
+    /// <summary>True after a Load() salvaged a corrupt vault by side-lining it. The next
+    /// Persist() will not silently overwrite a recoverable file.</summary>
+    public bool CorruptVaultDetected { get; private set; }
+
     [SupportedOSPlatform("windows")]
     private Dictionary<string, CredentialEntry> Load()
     {
-        if (!File.Exists(_path)) return new Dictionary<string, CredentialEntry>(StringComparer.OrdinalIgnoreCase);
+        if (!File.Exists(_path)) return NewDict();
         try
         {
             var encrypted = File.ReadAllBytes(_path);
             var decrypted = ProtectedData.Unprotect(encrypted, optionalEntropy: VaultEntropy, scope: DataProtectionScope.CurrentUser);
             var json = Encoding.UTF8.GetString(decrypted);
             var dict = JsonSerializer.Deserialize<Dictionary<string, CredentialEntry>>(json);
-            return dict ?? new Dictionary<string, CredentialEntry>(StringComparer.OrdinalIgnoreCase);
+            // JsonSerializer rebuilds the dictionary with its default comparer (Ordinal/case-sensitive).
+            // We rebuild with OrdinalIgnoreCase so callers can look up "carddav" regardless of how it was saved.
+            if (dict is null) return NewDict();
+            var ci = NewDict();
+            foreach (var kv in dict) ci[kv.Key] = kv.Value;
+            return ci;
         }
         catch
         {
-            // Corrupt vault — start over rather than block the user. Audit lives elsewhere.
-            return new Dictionary<string, CredentialEntry>(StringComparer.OrdinalIgnoreCase);
+            // Corrupt vault — preserve the original so the user (or a recovery script) can attempt
+            // re-decryption later, then return an empty in-memory dict. Persist() will refuse to
+            // overwrite the original until the user explicitly clears the flag.
+            BackupCorruptVault();
+            CorruptVaultDetected = true;
+            return NewDict();
         }
     }
 
@@ -77,8 +90,34 @@ public sealed class CredentialVault
         var encrypted = ProtectedData.Protect(bytes, optionalEntropy: VaultEntropy, scope: DataProtectionScope.CurrentUser);
         var dir = Path.GetDirectoryName(Path.GetFullPath(_path));
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        File.WriteAllBytes(_path, encrypted);
+        AtomicWrite(_path, encrypted);
     }
+
+    private void BackupCorruptVault()
+    {
+        try
+        {
+            var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssZ");
+            var backup = _path + $".corrupt-{stamp}.bak";
+            File.Copy(_path, backup, overwrite: false);
+        }
+        catch
+        {
+            // Backup is best-effort — don't block the user.
+        }
+    }
+
+    /// <summary>Atomic write: temp file + Move with Replace so an abrupt termination
+    /// can't leave the encrypted blob half-written.</summary>
+    private static void AtomicWrite(string path, byte[] bytes)
+    {
+        var tmp = path + ".tmp";
+        File.WriteAllBytes(tmp, bytes);
+        File.Move(tmp, path, overwrite: true);
+    }
+
+    private static Dictionary<string, CredentialEntry> NewDict() =>
+        new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly byte[] VaultEntropy = Encoding.UTF8.GetBytes("OrganizeContacts.CredentialVault.v1");
 }

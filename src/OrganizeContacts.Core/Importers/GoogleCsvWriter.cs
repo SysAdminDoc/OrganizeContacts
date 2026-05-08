@@ -15,9 +15,11 @@ public sealed class GoogleCsvWriter
         await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         await using var w = new StreamWriter(fs, new UTF8Encoding(false));
 
-        var maxEmails = Math.Max(1, contacts.Max(c => c.Emails.Count));
-        var maxPhones = Math.Max(1, contacts.Max(c => c.Phones.Count));
-        var maxAddresses = Math.Max(1, contacts.Max(c => c.Addresses.Count));
+        // Empty input still writes a valid header row so re-import round-trips.
+        // DefaultIfEmpty avoids an InvalidOperationException from Max() on an empty list.
+        var maxEmails = Math.Max(1, contacts.Select(c => c.Emails.Count).DefaultIfEmpty(0).Max());
+        var maxPhones = Math.Max(1, contacts.Select(c => c.Phones.Count).DefaultIfEmpty(0).Max());
+        var maxAddresses = Math.Max(1, contacts.Select(c => c.Addresses.Count).DefaultIfEmpty(0).Max());
 
         var header = BuildHeader(maxEmails, maxPhones, maxAddresses);
         await w.WriteLineAsync(CsvWriter.Format(header));

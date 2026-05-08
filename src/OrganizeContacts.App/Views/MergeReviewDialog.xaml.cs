@@ -9,11 +9,20 @@ namespace OrganizeContacts.App.Views;
 
 public partial class MergeReviewDialog : Window
 {
+    private const string EmptyPlaceholder = "(empty)";
+
     public ObservableCollection<MergeFieldRow> Rows { get; } = new();
     public Contact Primary { get; }
-    public Contact Secondary { get; }
-    public bool DeleteSecondaries { get; private set; } = true;
 
+    /// <summary>The contact shown in the right column. For N-way groups this is the
+    /// first secondary; the remaining secondaries are still merged into the survivor
+    /// via the <see cref="MergePlan"/> so collections are unioned across all members.</summary>
+    public Contact Secondary { get; }
+
+    /// <summary>All members other than the primary. Always merged into the survivor.</summary>
+    public IReadOnlyList<Contact> AllSecondaries { get; }
+
+    public bool DeleteSecondaries { get; private set; } = true;
     public MergePlan? Result { get; private set; }
 
     public MergeReviewDialog(DuplicateGroup group)
@@ -23,26 +32,41 @@ public partial class MergeReviewDialog : Window
             throw new InvalidOperationException("MergeReviewDialog requires a group with at least two members.");
 
         Primary = group.Members[0];
-        Secondary = group.Members[1];
+        AllSecondaries = group.Members.Skip(1).ToList();
+        Secondary = AllSecondaries[0];
 
         var signals = string.Join(" · ", group.Signals.Select(s => $"{s.Label} (+{s.Weight:0.00})"));
-        ConfidenceText.Text =
-            $"Confidence {group.Confidence:P0}.  {signals}";
+        var memberNote = AllSecondaries.Count > 1
+            ? $"  ·  {AllSecondaries.Count} secondary contacts will be merged (collections unioned across all)"
+            : string.Empty;
+        ConfidenceText.Text = $"Confidence {group.Confidence:P0}.  {signals}{memberNote}";
 
-        AddRow("FormattedName", "Formatted name", Primary.FormattedName, Secondary.FormattedName);
-        AddRow("GivenName", "Given name", Primary.GivenName, Secondary.GivenName);
-        AddRow("FamilyName", "Family name", Primary.FamilyName, Secondary.FamilyName);
-        AddRow("Nickname", "Nickname", Primary.Nickname, Secondary.Nickname);
-        AddRow("Organization", "Organization", Primary.Organization, Secondary.Organization);
-        AddRow("Title", "Title", Primary.Title, Secondary.Title);
+        // Pick scalar values from "the first secondary that has it" so a 3+ way merge still
+        // picks up data from member #3 if member #2 is missing the field.
+        AddRow("FormattedName", "Formatted name", Primary.FormattedName, FirstNonEmpty(c => c.FormattedName));
+        AddRow("GivenName", "Given name", Primary.GivenName, FirstNonEmpty(c => c.GivenName));
+        AddRow("FamilyName", "Family name", Primary.FamilyName, FirstNonEmpty(c => c.FamilyName));
+        AddRow("AdditionalNames", "Additional names", Primary.AdditionalNames, FirstNonEmpty(c => c.AdditionalNames));
+        AddRow("HonorificPrefix", "Prefix", Primary.HonorificPrefix, FirstNonEmpty(c => c.HonorificPrefix));
+        AddRow("HonorificSuffix", "Suffix", Primary.HonorificSuffix, FirstNonEmpty(c => c.HonorificSuffix));
+        AddRow("Nickname", "Nickname", Primary.Nickname, FirstNonEmpty(c => c.Nickname));
+        AddRow("Organization", "Organization", Primary.Organization, FirstNonEmpty(c => c.Organization));
+        AddRow("Title", "Title", Primary.Title, FirstNonEmpty(c => c.Title));
         AddRow("Birthday", "Birthday",
-            Primary.Birthday?.ToString("yyyy-MM-dd"), Secondary.Birthday?.ToString("yyyy-MM-dd"));
+            Primary.Birthday?.ToString("yyyy-MM-dd"),
+            AllSecondaries.Select(c => c.Birthday?.ToString("yyyy-MM-dd"))
+                          .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)));
         AddRow("Anniversary", "Anniversary",
-            Primary.Anniversary?.ToString("yyyy-MM-dd"), Secondary.Anniversary?.ToString("yyyy-MM-dd"));
-        AddRow("Notes", "Notes", Primary.Notes, Secondary.Notes);
+            Primary.Anniversary?.ToString("yyyy-MM-dd"),
+            AllSecondaries.Select(c => c.Anniversary?.ToString("yyyy-MM-dd"))
+                          .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)));
+        AddRow("Notes", "Notes", Primary.Notes, FirstNonEmpty(c => c.Notes));
 
         FieldList.ItemsSource = Rows;
     }
+
+    private string? FirstNonEmpty(Func<Contact, string?> selector) =>
+        AllSecondaries.Select(selector).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
     private void AddRow(string field, string label, string? left, string? right)
     {
@@ -50,10 +74,10 @@ public partial class MergeReviewDialog : Window
         {
             FieldName = field,
             FieldLabel = label,
-            LeftValue = left ?? "(empty)",
-            RightValue = right ?? "(empty)",
+            LeftValue = string.IsNullOrEmpty(left) ? EmptyPlaceholder : left,
+            RightValue = string.IsNullOrEmpty(right) ? EmptyPlaceholder : right,
         };
-        // Default: keep primary unless primary is empty.
+        // Default: keep primary unless primary is empty AND a secondary has a value.
         if (string.IsNullOrWhiteSpace(left) && !string.IsNullOrWhiteSpace(right))
             row.ChooseRight = true;
         else
@@ -65,17 +89,24 @@ public partial class MergeReviewDialog : Window
     {
         DeleteSecondaries = DeleteSecondariesBox.IsChecked == true;
 
-        var choices = Rows.Select(r => new MergeChoice(
-            r.FieldName,
-            r.ChooseLeft ? MergeFieldOrigin.Primary : MergeFieldOrigin.Secondary,
-            (r.ChooseLeft ? r.LeftValue : r.RightValue) == "(empty)"
-                ? null
-                : (r.ChooseLeft ? r.LeftValue : r.RightValue))).ToList();
+        var choices = Rows.Select(r =>
+        {
+            var picked = r.ChooseLeft ? r.LeftValue : r.RightValue;
+            // Translate the placeholder back to a real null instead of writing the literal
+            // string "(empty)" into the survivor.
+            string? value = picked == EmptyPlaceholder ? null : picked;
+            return new MergeChoice(
+                r.FieldName,
+                r.ChooseLeft ? MergeFieldOrigin.Primary : MergeFieldOrigin.Secondary,
+                value);
+        }).ToList();
 
         Result = new MergePlan
         {
             Primary = Primary,
-            Secondaries = new List<Contact> { Secondary },
+            // Pass ALL secondaries — MergeEngine will union phones/emails/addresses/urls/categories
+            // across every secondary so a 3+ contact group merges in one pass.
+            Secondaries = AllSecondaries.ToList(),
             Choices = choices,
             DeleteSecondaries = DeleteSecondaries,
         };

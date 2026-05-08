@@ -2,6 +2,179 @@
 
 All notable changes to OrganizeContacts will be documented in this file.
 
+## v0.3.1 — 2026-05-07 — Hardening pass
+
+End-to-end correctness, durability, and UX hardening pass across the whole codebase.
+93 tests passing (26 new regression tests guarding the fixes below).
+
+**Correctness**
+
+- `DedupEngine`: pair-scoring honours `MatchRules.MinPhoneDigits`. Previously the
+  blocking key used the rule but the pair-score was hardcoded to last-7 digits, so a
+  Strict profile with `MinPhoneDigits=10` could still match cross-country numbers on
+  the trailing 7 digits.
+- `VCardImporter`: cards with only `EMAIL`/`TEL`/`PHOTO` properties (no `FN` / `N`)
+  are now imported instead of being silently dropped. `CATEGORIES` parsing now
+  respects backslash-escaped commas. `CodePagesEncodingProvider` is registered once
+  in the type initializer instead of lazily inside a catch block.
+- `VCardImporter` line unfolder now handles RFC 2045 quoted-printable soft line
+  breaks (a trailing `=` on a QP-encoded line). Pre-fix, long QP-encoded values
+  from Outlook for Mac / BlackBerry / older Mozilla exports were silently
+  truncated at the first soft line break.
+- `VCardWriter`: line folding is now byte-correct (RFC 6350 says 75 octets, not
+  chars). Pre-fix, any FN/NOTE/ORG containing CJK or emoji wrote lines >75 octets and
+  could split mid-codepoint.
+- `BatchCleanup`: `DedupeBy` walks forward and keeps the *first* occurrence (with its
+  original kind/IsPreferred metadata). The dead `list.Reverse(); list.Reverse();`
+  no-op pair was removed and the keep-last semantics flipped.
+- `ImportPreviewer`: REV comparison parses ISO-8601 timestamps before falling back to
+  ordinal compare. Previously `"20260301T120000Z"` and `"2026-03-01T12:00:00Z"` were
+  treated as different REVs.
+- `MergeEngine`: `DateOnly.Parse` of user-chosen birthday/anniversary now uses
+  `CultureInfo.InvariantCulture` and accepts multiple ISO formats. Pre-fix this could
+  throw `FormatException` on non-US locales mid-merge.
+- `MergeEngine`: photo donation — when the surviving primary has no photo, the first
+  secondary that does provides it (with its mime type).
+- `MergeEngine`: choices for `AdditionalNames`, `HonorificPrefix`, `HonorificSuffix`
+  are now applied (previously only the basic name fields, org, title, notes,
+  birthday, anniversary).
+- `RollbackService.Restore`: uses a new `ContactRepository.ExistsAnyState` check so
+  restoring over a soft-deleted row does an UPDATE (with `RestoreContact` to clear
+  the tombstone) instead of an INSERT that would fail on the primary-key conflict.
+- `ContactRepository.InsertContact` and `UpdateContact` wrap the parent row + child
+  `ReplaceChildren` in an implicit transaction when the caller doesn't supply one.
+  Previously a SQL failure mid-`ReplaceChildren` could leave the parent row with a
+  partial child set; now the whole change rolls back atomically.
+- `OutlookCsvWriter` no longer silently drops phone-book overflow. Outlook's CSV
+  schema is fixed-width (2 Work, 2 Home, 1 each Mobile/Other/Pager/Main, 1 Business
+  Fax + 1 Home Fax) — surplus phones, emails (>3), and URLs (>1) now fold into the
+  Notes column with a `[OrganizeContacts overflow]` marker so a follow-up
+  Outlook → OrganizeContacts re-import can recover them.  Pre-fix, contacts with
+  three work phones or two faxes lost data on every export.
+
+**Security & data safety**
+
+- `CredentialVault`: case-insensitive lookups survive a save→reload cycle.
+  `JsonSerializer.Deserialize<Dictionary<…>>` returns an `Ordinal` comparer; we now
+  rebuild the dictionary with `OrdinalIgnoreCase` so a credential saved as `"CardDav"`
+  is found by `Get("carddav")`.
+- `CredentialVault`: corrupt vault files are side-lined as
+  `vault.dat.corrupt-<utc>.bak` and a `CorruptVaultDetected` flag is set instead of
+  being silently overwritten on the next save.
+- `CredentialVault.Persist` and `AppSettings.Save`: atomic writes via `*.tmp` +
+  `File.Move(..., overwrite: true)` so a process crash mid-write can't truncate the
+  encrypted blob or settings file.
+- `AppSettings.LoadOrDefault`: corrupt settings files are side-lined as
+  `settings.json.invalid.bak` for inspection (instead of silent reset to defaults).
+  Defensive defaults applied for missing region/profile/theme so a partial JSON
+  doesn't propagate empty strings into `PhoneNormalizer`.
+- `BatchCleanup` regex edits run with a 2-second `RegexMatchTimeoutException` cap so
+  a pathological backtracking pattern can't hang the cleanup pipeline. The
+  ViewModel surfaces the timeout in the status bar instead of crashing.
+
+**Reliability**
+
+- `CardDavClient` is now `IDisposable` and disposes its owned `HttpClient` (and
+  underlying handler). `CardDavConnectDialog` and `CardDavImporter` use `using` so
+  per-discovery / per-import sockets aren't leaked. A 60-second `HttpClient.Timeout`
+  caps server hangs.
+- `GoogleCsvWriter.WriteFileAsync` no longer throws `InvalidOperationException` on
+  an empty contact list (`Max()` over empty source) — emits a header-only CSV.
+- `MergeReviewDialog` now performs an N-way merge: all secondaries are passed into
+  the `MergePlan`, and scalar choices pick the first secondary with a non-empty
+  value. Pre-fix, only members[0] and members[1] participated, leaving the rest of a
+  3+-contact group untouched until the next rescan.
+- `MergeReviewDialog`: `(empty)` placeholder is properly translated back to `null`
+  on apply (previously the literal string could be written into the survivor if a
+  user ever named a contact `"(empty)"`).
+- `CardDavConnectDialog`: validates URL and scheme before dialing, blocks re-entry
+  while a discovery is in flight, and shows a wait cursor + button busy state.
+
+**Performance**
+
+- `GoogleCsvImporter`: header lookup is now `O(1)` via a precomputed
+  `Dictionary<string, int>` instead of `O(cols)` per `Get` call (which itself was
+  called dozens of times per row, producing `O(rows × cols²)` behaviour for large
+  exports).
+- `BatchCleanup` returns `TouchedIds`, and `MainViewModel.RunCleanup` now persists
+  only the rows that actually changed instead of `UPDATE`-ing every contact in the
+  database. For a 5,000-row store this turns thousands of writes into typically tens.
+- `CardDavImporter` parses incoming vCard bodies in memory via the new
+  `VCardImporter.ParseAll(string, string)` entry point — no more temp-file round
+  trip per CardDAV card.
+
+**UX**
+
+- `MainWindow`: the "Clear" button is renamed "Clear visible" and now genuinely
+  honours the active search/queue filter. Pre-fix, the button advertised
+  "Soft-delete all visible contacts" but actually wiped every row in the underlying
+  collection — a footgun when the search box was narrowed to a single match.
+- `GoogleCsvImporter`: phone-kind classifier matches "WORK FAX" / "OTHER FAX" /
+  "BUSINESS" sub-strings instead of relying on exact-string matches against an
+  enumeration of Google labels. Also accepts both `"… - Label"` and `"… - Type"`
+  header naming for email/phone variants.
+- `OpenSettings` rebuilds `_phoneNormalizer`, `_emailCanon`, and `_dedup` when the
+  user saves new settings, then triggers an immediate rescan. Pre-fix, region/match
+  profile/canonicalization changes were ignored until the next app launch.
+- `MainWindow` startup surfaces side-lined corrupt-file recoveries in the status
+  bar (settings.json or the credential vault) instead of silently using defaults.
+
+**Storage / SQLite**
+
+- `ContactRepository` opens every connection with `journal_mode=WAL` (non-blocking
+  reads while a write is in flight), `synchronous=NORMAL`, `busy_timeout=5000ms`,
+  and explicit `foreign_keys=ON`. WAL means a UI-thread `ListContacts` no longer
+  stalls behind a background commit.
+- `ListContacts` switched from N+1 child queries (5 round trips per contact) to 5
+  bucket-by-`contact_id` scans regardless of contact count. For a 5,000-row
+  database this drops 25,000 round trips to 5.
+- `HistoryStore.RecordUndo` no longer relies on multi-statement `ExecuteScalar`
+  to surface `last_insert_rowid()`. The INSERT and the rowid lookup are issued as
+  two explicit commands.
+
+**Threading**
+
+- `MainViewModel.RescanDuplicates` runs the dedup engine on a worker thread for
+  collections of 500+ contacts (with the result bucketed back onto the UI thread
+  via the captured sync context). Below the threshold it stays synchronous so
+  small libraries don't pay the context-switch tax.
+- `ReloadFromStore` reads the database off the UI thread the same way; the UI
+  shows a "Reloading…" status during the round trip.
+- New `IsBusy` observable property gates every command that touches the SQLite
+  connection (Import / Export / Rescan / Cleanup / AutoMerge / Undo / Clear /
+  ReviewMerge / OpenRestoreHistory / OpenSettings) via `[NotifyCanExecuteChangedFor]`.
+  Closes the connection-race window where a UI-thread `Audit` call landing
+  while the background reload is mid-`ListContacts` could throw `SQLITE_MISUSE`.
+
+**ViewModel performance**
+
+- ContactsView filter switched from `Duplicates × Members` membership lookup
+  (O(n²)) to an O(1) `Dictionary<Guid, double>` rebuilt once per dedup pass.
+  At 5,000 contacts × 1,000 duplicate groups this was ~5M lookups per filter
+  refresh — typed-search now stays interactive.
+- `BatchCleanup.Run` accepts a `CancellationToken` so the cleanup pipeline can
+  be aborted mid-pass (the future "cancel" button has somewhere to attach).
+
+**WPF chrome**
+
+- `App.ApplyTheme` locates the existing theme dictionary by source path
+  instead of assuming `MergedDictionaries[0]`, so a future shared-styles
+  dictionary inserted ahead of the theme can't accidentally be overwritten.
+
+**Imports / exports**
+
+- `RunImport`, `ImportCardDavAsync`, and `ExportVCardAsync` are wrapped in
+  try/catch with a `MessageBox` fallback. A malformed file or a transient DB
+  failure no longer crashes the app or leaves the in-memory ObservableCollection
+  ahead of the database — the Contacts list is only mutated after the transaction
+  commits.
+- Failed imports are recorded with `ImportStatus.Failed` and the exception
+  message in the import record's `Notes` so the History pane shows the truth
+  instead of a stalled "Pending" row.
+- `GoogleCsvImporter`, `OutlookCsvImporter` use `CultureInfo.InvariantCulture`
+  for date parsing (Birthday/Anniversary). Pre-fix, an export with `5/7/2026`
+  parsed differently on en-US vs en-GB locales.
+
 ## v0.3.0 — 2026-05-07 (in-progress)
 
 Format breadth and migration round-trip.

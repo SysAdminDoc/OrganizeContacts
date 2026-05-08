@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Text;
 using OrganizeContacts.Core.Models;
@@ -35,30 +36,39 @@ public sealed class GoogleCsvImporter : IContactImporter
         await Task.Yield();
         using var reader = new StreamReader(path, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         List<string>? header = null;
-        var rowIdx = 0;
+        Dictionary<string, int>? headerIndex = null;
         foreach (var row in CsvReader.Read(reader))
         {
             ct.ThrowIfCancellationRequested();
             if (header is null)
             {
                 header = row;
+                headerIndex = BuildIndex(row);
                 continue;
             }
-            rowIdx++;
-            var c = MapRow(header, row, path);
+            var c = MapRow(header, headerIndex!, row, path);
             if (c is not null) yield return c;
         }
     }
 
-    private static Contact? MapRow(List<string> header, List<string> row, string sourceFile)
+    /// <summary>O(1) header lookup map. Last column wins on header collisions.</summary>
+    private static Dictionary<string, int> BuildIndex(List<string> header)
+    {
+        var map = new Dictionary<string, int>(header.Count, StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < header.Count; i++) map[header[i]] = i;
+        return map;
+    }
+
+    private static Contact? MapRow(List<string> header, Dictionary<string, int> headerIndex, List<string> row, string sourceFile)
     {
         var contact = new Contact { SourceFile = sourceFile, SourceFormat = "Google CSV" };
         var seen = false;
 
-        string Get(string key) =>
-            row.Count > IndexOf(header, key) && IndexOf(header, key) >= 0
-                ? row[IndexOf(header, key)]
-                : string.Empty;
+        string Get(string key)
+        {
+            if (!headerIndex.TryGetValue(key, out var i)) return string.Empty;
+            return i < row.Count ? row[i] : string.Empty;
+        }
 
         var first = Get("Given Name");
         var last = Get("Family Name");
@@ -92,7 +102,7 @@ public sealed class GoogleCsvImporter : IContactImporter
         if (!string.IsNullOrWhiteSpace(notes)) contact.Notes = notes;
 
         var bday = Get("Birthday");
-        if (DateOnly.TryParse(bday, out var bd)) contact.Birthday = bd;
+        if (TryParseCsvDate(bday, out var bd)) contact.Birthday = bd;
 
         // Multi-row "E-mail N - Value" / "Phone N - Value" / "Address N - …"
         var emailValueCols = header
@@ -106,8 +116,8 @@ public sealed class GoogleCsvImporter : IContactImporter
             if (i >= row.Count) continue;
             var val = row[i];
             if (string.IsNullOrWhiteSpace(val)) continue;
-            var typeCol = header.IndexOf(h.Replace(" - Value", " - Label"));
-            var type = typeCol >= 0 && typeCol < row.Count ? row[typeCol] : "";
+            // Google has shipped both "- Label" and "- Type" depending on the export year. Try both.
+            var type = LookupLabel(headerIndex, row, h, " - Value", " - Label", " - Type");
             foreach (var split in val.Split(new[] { " ::: ", "\n" }, StringSplitOptions.RemoveEmptyEntries))
             {
                 contact.Emails.Add(new EmailAddress
@@ -130,8 +140,7 @@ public sealed class GoogleCsvImporter : IContactImporter
             if (i >= row.Count) continue;
             var val = row[i];
             if (string.IsNullOrWhiteSpace(val)) continue;
-            var typeCol = header.IndexOf(h.Replace(" - Value", " - Label"));
-            var type = typeCol >= 0 && typeCol < row.Count ? row[typeCol] : "";
+            var type = LookupLabel(headerIndex, row, h, " - Value", " - Label", " - Type");
             foreach (var split in val.Split(new[] { " ::: ", "\n" }, StringSplitOptions.RemoveEmptyEntries))
             {
                 contact.Phones.Add(PhoneNumber.Parse(split.Trim(), ParsePhoneKind(type)));
@@ -193,6 +202,49 @@ public sealed class GoogleCsvImporter : IContactImporter
         return -1;
     }
 
+    /// <summary>Culture-stable date parse. Google emits ISO-8601, but partial dates and
+    /// locale-pasted values show up in real exports — we accept the common shapes and
+    /// reject everything else rather than misparse via the host's current culture.</summary>
+    internal static bool TryParseCsvDate(string s, out DateOnly value)
+    {
+        value = default;
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var formats = new[] { "yyyy-MM-dd", "yyyy/MM/dd", "yyyyMMdd", "MM/dd/yyyy", "dd/MM/yyyy" };
+        if (DateOnly.TryParseExact(s, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out value))
+            return true;
+        // vCard 4.0 partial date "--MM-DD" / "--MMDD"
+        if (s.StartsWith("--"))
+        {
+            var rest = s[2..].Replace("-", "");
+            if (rest.Length >= 4 &&
+                int.TryParse(rest[..2], out var m) &&
+                int.TryParse(rest.Substring(2, 2), out var d))
+            {
+                try { value = new DateOnly(2000, m, d); return true; } catch { return false; }
+            }
+        }
+        return DateOnly.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out value);
+    }
+
+    private static string LookupLabel(
+        Dictionary<string, int> headerIndex,
+        List<string> row,
+        string valueHeader,
+        string valueSuffix,
+        params string[] candidateSuffixes)
+    {
+        foreach (var suffix in candidateSuffixes)
+        {
+            var key = valueHeader.Replace(valueSuffix, suffix, StringComparison.OrdinalIgnoreCase);
+            if (headerIndex.TryGetValue(key, out var i) && i < row.Count)
+            {
+                var v = row[i];
+                if (!string.IsNullOrWhiteSpace(v)) return v;
+            }
+        }
+        return string.Empty;
+    }
+
     private static EmailKind ParseEmailKind(string? type) => (type ?? "").Trim().ToUpperInvariant() switch
     {
         "WORK" => EmailKind.Work,
@@ -200,16 +252,18 @@ public sealed class GoogleCsvImporter : IContactImporter
         _ => EmailKind.Other,
     };
 
-    private static PhoneKind ParsePhoneKind(string? type) => (type ?? "").Trim().ToUpperInvariant() switch
+    private static PhoneKind ParsePhoneKind(string? type)
     {
-        "MOBILE" or "CELL" => PhoneKind.Mobile,
-        "HOME" => PhoneKind.Home,
-        "WORK" => PhoneKind.Work,
-        "FAX" or "WORK FAX" or "HOME FAX" => PhoneKind.Fax,
-        "PAGER" => PhoneKind.Pager,
-        "MAIN" => PhoneKind.Main,
-        _ => PhoneKind.Other,
-    };
+        var t = (type ?? "").Trim().ToUpperInvariant();
+        // Match the most specific buckets first so "WORK FAX" routes to Fax, not Work.
+        if (t.Contains("FAX")) return PhoneKind.Fax;
+        if (t.Contains("MOBILE") || t.Contains("CELL")) return PhoneKind.Mobile;
+        if (t.Contains("PAGER")) return PhoneKind.Pager;
+        if (t.Contains("MAIN")) return PhoneKind.Main;
+        if (t.Contains("HOME")) return PhoneKind.Home;
+        if (t.Contains("WORK") || t.Contains("BUSINESS")) return PhoneKind.Work;
+        return PhoneKind.Other;
+    }
 
     private static AddressKind ParseAddressKind(string? type) => (type ?? "").Trim().ToUpperInvariant() switch
     {

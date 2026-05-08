@@ -27,28 +27,21 @@ public sealed class CardDavImporter : IContactImporter
         string path,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
-        var client = _clientFactory();
+        // Dispose the client (and its underlying HttpClient) once we're done so an import
+        // pipeline that creates a fresh CardDavImporter per address-book run doesn't leak sockets.
+        using var client = _clientFactory();
         var cards = await client.FetchAddressBookAsync(path, ct);
         var inner = new VCardImporter();
 
         foreach (var card in cards)
         {
             ct.ThrowIfCancellationRequested();
-            // Stream the body through the existing parser by writing to a temp file.
-            var tmp = Path.Combine(Path.GetTempPath(), $"oc-carddav-{Guid.NewGuid():N}.vcf");
-            await File.WriteAllTextAsync(tmp, card.VCardBody, ct);
-            try
+            // Parse directly from the response body — no temp-file round trip.
+            foreach (var c in inner.ParseAll(card.VCardBody, card.Href))
             {
-                await foreach (var c in inner.ReadAsync(tmp, ct))
-                {
-                    c.SourceFile = card.Href;
-                    c.SourceFormat = $"CardDAV (etag {card.ETag})";
-                    yield return c;
-                }
-            }
-            finally
-            {
-                try { File.Delete(tmp); } catch { }
+                c.SourceFile = card.Href;
+                c.SourceFormat = $"CardDAV (etag {card.ETag})";
+                yield return c;
             }
         }
     }

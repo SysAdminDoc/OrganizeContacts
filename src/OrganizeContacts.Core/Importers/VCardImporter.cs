@@ -11,6 +11,14 @@ namespace OrganizeContacts.Core.Importers;
 /// </summary>
 public sealed class VCardImporter : IContactImporter
 {
+    static VCardImporter()
+    {
+        // Register code-pages provider once so QUOTED-PRINTABLE blobs that declare
+        // CHARSET=windows-1252 (Outlook for Mac, etc.) decode without racing on first use.
+        try { Encoding.RegisterProvider(CodePagesEncodingProvider.Instance); }
+        catch { /* test environments without the provider package — ignore */ }
+    }
+
     public string Name => "vCard 2.1/3.0/4.0";
     public IReadOnlyCollection<string> SupportedExtensions { get; } = new[] { ".vcf", ".vcard" };
 
@@ -31,6 +39,38 @@ public sealed class VCardImporter : IContactImporter
             raw.Add(line);
         }
 
+        foreach (var c in ParseCards(raw, path)) yield return c;
+    }
+
+    /// <summary>Parse a vCard from a string (e.g. the body returned by a CardDAV GET).
+    /// Avoids round-tripping through a temp file when the source is already in memory.</summary>
+    public IEnumerable<Contact> ParseAll(string vcardText, string sourceLabel = "")
+    {
+        if (string.IsNullOrEmpty(vcardText)) yield break;
+        var raw = new List<string>(vcardText.Length / 64 + 1);
+        // Match StreamReader semantics: split on CR, LF, or CRLF.
+        var sb = new StringBuilder();
+        for (int i = 0; i < vcardText.Length; i++)
+        {
+            var ch = vcardText[i];
+            if (ch == '\r')
+            {
+                raw.Add(sb.ToString()); sb.Clear();
+                if (i + 1 < vcardText.Length && vcardText[i + 1] == '\n') i++;
+            }
+            else if (ch == '\n')
+            {
+                raw.Add(sb.ToString()); sb.Clear();
+            }
+            else sb.Append(ch);
+        }
+        if (sb.Length > 0) raw.Add(sb.ToString());
+
+        foreach (var c in ParseCards(raw, sourceLabel)) yield return c;
+    }
+
+    private static IEnumerable<Contact> ParseCards(IReadOnlyList<string> raw, string sourceLabel)
+    {
         var unfolded = Unfold(raw);
 
         var inCard = false;
@@ -47,7 +87,7 @@ public sealed class VCardImporter : IContactImporter
             {
                 if (inCard && card.Count > 0)
                 {
-                    var c = ParseCard(card, path);
+                    var c = ParseCard(card, sourceLabel);
                     if (c is not null) yield return c;
                 }
                 inCard = false;
@@ -57,18 +97,50 @@ public sealed class VCardImporter : IContactImporter
         }
     }
 
-    /// <summary>RFC 6350 line unfolding: continuation if next line begins with WS.</summary>
+    /// <summary>
+    /// Line unfolding for vCard 2.1/3.0/4.0:
+    ///  • RFC 6350 §3.2 — a continuation line begins with WS; trim it and append to the
+    ///    previous logical line.
+    ///  • RFC 2045 §6.7 — for properties that declared `ENCODING=QUOTED-PRINTABLE`, a
+    ///    trailing `=` is a "soft line break". The next line must be appended (without the
+    ///    `=`), regardless of leading whitespace. Without this, long QP-encoded values
+    ///    from Outlook for Mac / BlackBerry exports were silently truncated at the first
+    ///    soft break.
+    /// </summary>
     internal static List<string> Unfold(IReadOnlyList<string> raw)
     {
         var unfolded = new List<string>(raw.Count);
         foreach (var line in raw)
         {
+            // RFC 6350 whitespace-continuation
             if (line.Length > 0 && (line[0] == ' ' || line[0] == '\t') && unfolded.Count > 0)
+            {
                 unfolded[^1] += line[1..];
-            else
-                unfolded.Add(line);
+                continue;
+            }
+            // RFC 2045 quoted-printable soft-line-break: the previous logical line ends with
+            // `=` AND was declared QP-encoded.
+            if (unfolded.Count > 0 &&
+                unfolded[^1].EndsWith('=') &&
+                IsQuotedPrintableLine(unfolded[^1]))
+            {
+                unfolded[^1] = unfolded[^1][..^1] + line;
+                continue;
+            }
+            unfolded.Add(line);
         }
         return unfolded;
+    }
+
+    private static bool IsQuotedPrintableLine(string line)
+    {
+        // Cheap textual probe — we only care that the parameter section
+        // declares QP encoding before the first ':'. Avoids running the full param
+        // tokenizer on every line.
+        var colon = line.IndexOf(':');
+        if (colon < 0) return false;
+        var head = line.AsSpan(0, colon);
+        return head.Contains("QUOTED-PRINTABLE", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Contact? ParseCard(IReadOnlyList<string> lines, string sourceFile)
@@ -152,19 +224,27 @@ public sealed class VCardImporter : IContactImporter
                     break;
 
                 case "TEL":
-                    contact.Phones.Add(PhoneNumber.Parse(
-                        UnescapeText(prop.Value),
-                        ParsePhoneKind(prop),
-                        prop.IsPreferred));
+                    if (!string.IsNullOrWhiteSpace(prop.Value))
+                    {
+                        contact.Phones.Add(PhoneNumber.Parse(
+                            UnescapeText(prop.Value),
+                            ParsePhoneKind(prop),
+                            prop.IsPreferred));
+                        seenAny = true;
+                    }
                     break;
 
                 case "EMAIL":
-                    contact.Emails.Add(new EmailAddress
+                    if (!string.IsNullOrWhiteSpace(prop.Value))
                     {
-                        Address = UnescapeText(prop.Value),
-                        Kind = ParseEmailKind(prop),
-                        IsPreferred = prop.IsPreferred,
-                    });
+                        contact.Emails.Add(new EmailAddress
+                        {
+                            Address = UnescapeText(prop.Value),
+                            Kind = ParseEmailKind(prop),
+                            IsPreferred = prop.IsPreferred,
+                        });
+                        seenAny = true;
+                    }
                     break;
 
                 case "ADR":
@@ -189,8 +269,11 @@ public sealed class VCardImporter : IContactImporter
                     break;
 
                 case "CATEGORIES":
-                    foreach (var c in prop.Value.Split(','))
-                        if (!string.IsNullOrWhiteSpace(c)) contact.Categories.Add(UnescapeText(c.Trim()));
+                    foreach (var c in SplitEscaped(prop.Value, ','))
+                    {
+                        var v = UnescapeText(c).Trim();
+                        if (!string.IsNullOrWhiteSpace(v)) contact.Categories.Add(v);
+                    }
                     break;
 
                 case "PHOTO":
@@ -305,6 +388,29 @@ public sealed class VCardImporter : IContactImporter
             Name = prop.Name,
             Value = value,
         }.WithParams(prop.Params);
+    }
+
+    /// <summary>Split <paramref name="value"/> on <paramref name="sep"/>, honouring backslash escapes.</summary>
+    internal static List<string> SplitEscaped(string value, char sep)
+    {
+        var parts = new List<string>();
+        if (string.IsNullOrEmpty(value)) return parts;
+        var sb = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            if (ch == '\\' && i + 1 < value.Length)
+            {
+                sb.Append(ch);
+                sb.Append(value[i + 1]);
+                i++;
+                continue;
+            }
+            if (ch == sep) { parts.Add(sb.ToString()); sb.Clear(); continue; }
+            sb.Append(ch);
+        }
+        parts.Add(sb.ToString());
+        return parts;
     }
 
     private static string[] SplitStructured(string value)
@@ -470,15 +576,7 @@ public sealed class VCardImporter : IContactImporter
     {
         if (string.IsNullOrEmpty(charset)) return Encoding.UTF8;
         try { return Encoding.GetEncoding(charset); }
-        catch
-        {
-            try
-            {
-                Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-                return Encoding.GetEncoding(charset);
-            }
-            catch { return Encoding.UTF8; }
-        }
+        catch { return Encoding.UTF8; }
     }
 
     private static bool IsHex(char c) =>

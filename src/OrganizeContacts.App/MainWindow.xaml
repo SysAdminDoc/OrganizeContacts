@@ -40,7 +40,7 @@
                     <TextBlock Text="OrganizeContacts"
                                FontSize="18" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" />
-                    <TextBlock Text="v0.3.0"
+                    <TextBlock Text="v0.3.1"
                                Margin="10,3,0,0"
                                FontSize="11"
                                Foreground="{StaticResource Subtext0Brush}" />
@@ -112,9 +112,10 @@
                             ToolTip="Ctrl+, · Region, match profile, canonicalization"
                             AutomationProperties.Name="Open settings"
                             Margin="0,0,8,0" />
-                    <Button Content="Clear"
+                    <Button Content="Clear visible"
                             Command="{Binding ClearAllCommand}"
-                            AutomationProperties.Name="Soft-delete all visible contacts" />
+                            ToolTip="Soft-delete the contacts that match the current search/queue filter (recoverable via Restore History)"
+                            AutomationProperties.Name="Soft-delete the visible contacts" />
                 </StackPanel>
             </Grid>
         </Border>

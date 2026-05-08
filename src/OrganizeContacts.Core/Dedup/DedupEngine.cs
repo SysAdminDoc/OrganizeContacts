@@ -173,7 +173,9 @@ public sealed class DedupEngine
             }
         }
 
-        // Phones
+        // Phones — keep blocking-key digit count and pair-scoring digit count in sync
+        // so a contact pair grouped on a tail-N match also scores on it.
+        var tail = Math.Max(_rules.MinPhoneDigits, 1);
         foreach (var pa in a.Phones)
         foreach (var pb in b.Phones)
         {
@@ -183,9 +185,11 @@ public sealed class DedupEngine
                 total += _rules.WeightPhoneE164;
                 goto phonesDone;
             }
-            if (pa.Digits.Length >= 7 && pb.Digits.Length >= 7 && pa.Digits[^7..] == pb.Digits[^7..])
+            if (pa.Digits.Length >= tail && pb.Digits.Length >= tail &&
+                pa.Digits[^tail..] == pb.Digits[^tail..])
             {
-                signals.Add(new MatchSignal("phone last 7", _rules.WeightPhoneLast7, pa.Digits[^7..]));
+                var label = $"phone last {tail}";
+                signals.Add(new MatchSignal(label, _rules.WeightPhoneLast7, pa.Digits[^tail..]));
                 total += _rules.WeightPhoneLast7;
                 goto phonesDone;
             }

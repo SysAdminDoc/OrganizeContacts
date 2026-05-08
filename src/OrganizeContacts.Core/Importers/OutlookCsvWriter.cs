@@ -57,31 +57,50 @@ public sealed class OutlookCsvWriter
         AppendAddress(row, home);
         AppendAddress(row, other);
 
-        // Phone block
-        var workPhones = c.Phones.Where(p => p.Kind == PhoneKind.Work).ToList();
-        var homePhones = c.Phones.Where(p => p.Kind == PhoneKind.Home).ToList();
-        var pBusiness = workPhones.ElementAtOrDefault(0);
-        var pBusiness2 = workPhones.ElementAtOrDefault(1);
-        var pBusinessFax = c.Phones.FirstOrDefault(p => p.Kind == PhoneKind.Fax);
-        var pHome = homePhones.ElementAtOrDefault(0);
-        var pHome2 = homePhones.ElementAtOrDefault(1);
-        var pMobile = c.Phones.FirstOrDefault(p => p.Kind == PhoneKind.Mobile);
-        var pOther = c.Phones.FirstOrDefault(p => p.Kind == PhoneKind.Other);
-        var pPager = c.Phones.FirstOrDefault(p => p.Kind == PhoneKind.Pager);
-        var pMain = c.Phones.FirstOrDefault(p => p.Kind == PhoneKind.Main);
+        // Phone block — track which entries got written so we can append any leftovers
+        // to Notes instead of silently dropping them. Outlook's schema is fixed-width
+        // (2 Work, 2 Home, 1 of each Mobile/Other/Pager/Main, 1 Business Fax + 1 Home
+        // Fax), so a contact with three work phones or two faxes used to lose data.
+        var written = new HashSet<int>();
+        var phones = c.Phones;
 
-        row.Add("");                              // Assistant
+        PhoneNumber? PickKind(PhoneKind k, int skip = 0)
+        {
+            int seen = 0;
+            for (int i = 0; i < phones.Count; i++)
+            {
+                if (written.Contains(i)) continue;
+                if (phones[i].Kind != k) continue;
+                if (seen++ < skip) continue;
+                written.Add(i);
+                return phones[i];
+            }
+            return null;
+        }
+
+        var pBusinessFax = PickKind(PhoneKind.Fax);   // first Fax → Business Fax
+        var pBusiness    = PickKind(PhoneKind.Work);
+        var pBusiness2   = PickKind(PhoneKind.Work);
+        var pMain        = PickKind(PhoneKind.Main);
+        var pHomeFax     = PickKind(PhoneKind.Fax);   // second Fax → Home Fax
+        var pHome        = PickKind(PhoneKind.Home);
+        var pHome2       = PickKind(PhoneKind.Home);
+        var pMobile      = PickKind(PhoneKind.Mobile);
+        var pOther       = PickKind(PhoneKind.Other);
+        var pPager       = PickKind(PhoneKind.Pager);
+
+        row.Add("");                              // Assistant's Phone
         row.Add(P(pBusinessFax));
         row.Add(P(pBusiness));
         row.Add(P(pBusiness2));
-        row.Add(""); row.Add(""); row.Add(P(pMain));
-        row.Add(""); row.Add(P(pHome)); row.Add(P(pHome2));
+        row.Add(""); row.Add(""); row.Add(P(pMain));   // Callback, Car Phone, Company Main Phone
+        row.Add(P(pHomeFax)); row.Add(P(pHome)); row.Add(P(pHome2));
         row.Add(""); row.Add(P(pMobile));
         row.Add(""); row.Add(P(pOther));
         row.Add(P(pPager));
         row.Add(""); row.Add(""); row.Add(""); row.Add("");
 
-        // Emails
+        // Emails — three slots; surplus goes into Notes too.
         row.Add(c.Emails.ElementAtOrDefault(0)?.Address ?? "");
         row.Add(c.Emails.ElementAtOrDefault(1)?.Address ?? "");
         row.Add(c.Emails.ElementAtOrDefault(2)?.Address ?? "");
@@ -90,7 +109,28 @@ public sealed class OutlookCsvWriter
         row.Add(c.Birthday?.ToString("yyyy-MM-dd") ?? "");
         row.Add(c.Anniversary?.ToString("yyyy-MM-dd") ?? "");
         row.Add(c.Urls.FirstOrDefault() ?? "");
-        row.Add(c.Notes ?? "");
+
+        // Build the Notes column last so we can fold in any data the fixed-width Outlook
+        // schema couldn't hold. Marker is grep-friendly so a follow-up Outlook export →
+        // OrganizeContacts re-import can recover the surplus values.
+        var leftoverPhones = new List<string>();
+        for (int i = 0; i < phones.Count; i++)
+            if (!written.Contains(i))
+                leftoverPhones.Add($"{phones[i].Kind.ToString().ToLowerInvariant()}={P(phones[i])}");
+        var leftoverEmails = c.Emails.Skip(3).Select(e => e.Address).ToList();
+        var leftoverUrls   = c.Urls.Skip(1).ToList();
+
+        var notes = c.Notes ?? string.Empty;
+        var extras = new List<string>();
+        if (leftoverPhones.Count > 0) extras.Add("phones: " + string.Join("; ", leftoverPhones));
+        if (leftoverEmails.Count > 0) extras.Add("extra emails: " + string.Join("; ", leftoverEmails));
+        if (leftoverUrls.Count > 0)   extras.Add("urls: "         + string.Join("; ", leftoverUrls));
+        if (extras.Count > 0)
+        {
+            if (!string.IsNullOrEmpty(notes)) notes += "\n";
+            notes += "[OrganizeContacts overflow] " + string.Join(" | ", extras);
+        }
+        row.Add(notes);
         row.Add(string.Join(';', c.Categories));
 
         return row;

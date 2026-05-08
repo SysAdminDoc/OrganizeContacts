@@ -17,6 +17,10 @@ public sealed class BatchCleanupReport
     public int PhotosStripped { get; set; }
     public int ContactsTouched { get; set; }
 
+    /// <summary>IDs of contacts whose state actually changed; the caller can persist only these
+    /// instead of UPDATE-ing every row in the database.</summary>
+    public HashSet<Guid> TouchedIds { get; } = new();
+
     public string Summary =>
         $"Touched {ContactsTouched} contact(s): " +
         $"phones {PhonesDeduped}/{PhonesNormalized}, " +
@@ -64,11 +68,13 @@ public sealed class BatchCleanup
         bool normalizePhones = true,
         bool canonicalizeEmails = true,
         bool stripPhotoMetadata = false,
-        IReadOnlyList<RegexEdit>? regexEdits = null)
+        IReadOnlyList<RegexEdit>? regexEdits = null,
+        CancellationToken ct = default)
     {
         var report = new BatchCleanupReport();
         foreach (var c in contacts)
         {
+            ct.ThrowIfCancellationRequested();
             var touched = false;
             if (normalizePhones && _phone is not null)
             {
@@ -139,27 +145,26 @@ public sealed class BatchCleanup
             {
                 c.UpdatedAt = DateTimeOffset.UtcNow;
                 report.ContactsTouched++;
+                report.TouchedIds.Add(c.Id);
             }
         }
         return report;
     }
 
+    /// <summary>Removes later duplicates while preserving the first occurrence and its order.</summary>
     private static int DedupeBy<T>(List<T> list, Func<T, string> keyFn)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var removed = 0;
-        for (int i = list.Count - 1; i >= 0; i--)
+        // Forward sweep: first occurrence wins, later ones removed.
+        for (int i = 0; i < list.Count; )
         {
             var key = keyFn(list[i]);
-            if (string.IsNullOrEmpty(key)) continue;
-            if (!seen.Add(key))
-            {
-                list.RemoveAt(i);
-                removed++;
-            }
+            // Skip empty keys entirely — we have no basis to dedupe them.
+            if (string.IsNullOrEmpty(key)) { i++; continue; }
+            if (!seen.Add(key)) { list.RemoveAt(i); removed++; continue; }
+            i++;
         }
-        list.Reverse();
-        list.Reverse();
         return removed;
     }
 
@@ -167,16 +172,22 @@ public sealed class BatchCleanup
     {
         var seen = new HashSet<string>(cmp);
         var removed = 0;
-        for (int i = list.Count - 1; i >= 0; i--)
+        for (int i = 0; i < list.Count; )
         {
-            if (!seen.Add(list[i])) { list.RemoveAt(i); removed++; }
+            if (!seen.Add(list[i])) { list.RemoveAt(i); removed++; continue; }
+            i++;
         }
         return removed;
     }
 
+    /// <summary>Cap regex matching at 2s/field to defuse pathological backtracking patterns
+    /// the user might paste from a bug-tracker comment. .NET surfaces this as a RegexMatchTimeoutException
+    /// which the caller can catch.</summary>
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(2);
+
     private static int ApplyRegex(Contact c, RegexEdit edit)
     {
-        var rgx = new Regex(edit.Pattern, edit.Options);
+        var rgx = new Regex(edit.Pattern, edit.Options, RegexTimeout);
         var hits = 0;
         switch (edit.Target)
         {

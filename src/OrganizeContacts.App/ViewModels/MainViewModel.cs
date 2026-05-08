@@ -40,14 +40,21 @@ public partial class MainViewModel : ObservableObject
     private readonly MergeEngine _mergeEngine = new();
     private readonly AutoMergeService _autoMerge = new();
     private readonly CredentialVault _vault;
-    private readonly EmailCanonicalizer _emailCanon = new();
+    // Settings-derived collaborators — reconstructed when the user saves new settings
+    // so changes take effect immediately instead of requiring a restart.
+    private EmailCanonicalizer _emailCanon = new();
     private readonly AppSettings _settings;
-    private readonly PhoneNormalizer _phoneNormalizer;
-    private readonly DedupEngine _dedup;
+    private PhoneNormalizer _phoneNormalizer;
+    private DedupEngine _dedup;
 
     public ObservableCollection<Contact> Contacts { get; } = new();
     public ObservableCollection<DuplicateGroup> Duplicates { get; } = new();
     public ObservableCollection<ContactSource> Sources { get; } = new();
+
+    /// <summary>Cached `contact-id → highest confidence in any group containing it`. Refreshed
+    /// after every dedup pass so <see cref="ContactPredicate"/> can decide queue membership in
+    /// O(1) instead of scanning every duplicate group on every filter row.</summary>
+    private Dictionary<Guid, double> _duplicateMembership = new();
 
     public ICollectionView ContactsView { get; }
 
@@ -78,6 +85,33 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private DuplicateGroup? _selectedDuplicateGroup;
 
+    /// <summary>
+    /// True while a background DB operation (reload, import, rescan above the threshold)
+    /// is in flight. We use this to gate every command that touches the SQLite connection,
+    /// because <see cref="Microsoft.Data.Sqlite.SqliteConnection"/> is not thread-safe — a
+    /// UI-thread `Audit` call landing while the worker is mid-`ListContacts` would throw
+    /// `SQLITE_MISUSE`.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ImportVCardCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportGoogleCsvCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportOutlookCsvCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportLdifCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportJCardCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportCardDavCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportVCardCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RescanDuplicatesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RunCleanupCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AutoMergeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UndoLastCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ClearAllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ReviewMergeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenRestoreHistoryCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
+    private bool _isBusy;
+
+    private bool NotBusy() => !IsBusy;
+
     public MainViewModel()
     {
         _dataDir = Path.Combine(
@@ -101,12 +135,27 @@ public partial class MainViewModel : ObservableObject
 
         _history.Audit("session.start");
 
-        foreach (var s in _repo.ListSources()) Sources.Add(s);
-        foreach (var c in _repo.ListContacts()) Contacts.Add(c);
-        if (Contacts.Count > 0) RescanDuplicates();
-
+        // CollectionView must be created BEFORE the initial load so the filter is in effect
+        // for the first batch — otherwise the queue selector silently does nothing on a fresh
+        // session until the user types into the search box.
         ContactsView = CollectionViewSource.GetDefaultView(Contacts);
         ContactsView.Filter = ContactPredicate;
+
+        // Initial load is synchronous because the constructor must finish before the
+        // window is shown — but with the bulk-loader N+1 fix this now runs in a single
+        // round trip per child table even for several thousand contacts.
+        foreach (var s in _repo.ListSources()) Sources.Add(s);
+        foreach (var c in _repo.ListContacts()) Contacts.Add(c);
+        if (Contacts.Count > 0)
+        {
+            // First-load dedup runs sync so the user sees results immediately, but
+            // subsequent rescans (after import/cleanup/merge) hop to a worker.
+            RescanDuplicates();
+        }
+        if (_settings.LoadError is { Length: > 0 })
+            StatusMessage = $"Settings file was unreadable; reverted to defaults (.invalid.bak preserved). {_settings.LoadError}";
+        if (CredentialVault.IsSupported && _vault.CorruptVaultDetected)
+            StatusMessage = "Credential vault was unreadable; backed up and started fresh.";
     }
 
     private bool ContactPredicate(object? raw)
@@ -128,17 +177,34 @@ public partial class MainViewModel : ObservableObject
         switch (SelectedQueue)
         {
             case "In a duplicate group":
-                return Duplicates.Any(g => g.Members.Any(m => m.Id == c.Id));
+                return _duplicateMembership.ContainsKey(c.Id);
             case "Stub (only a name)":
                 return c.Phones.Count == 0 && c.Emails.Count == 0 && !string.IsNullOrWhiteSpace(c.DisplayName);
             case "Empty (no name)":
                 return string.IsNullOrWhiteSpace(c.DisplayName);
             case "High confidence duplicates":
-                var grp = Duplicates.FirstOrDefault(g => g.Members.Any(m => m.Id == c.Id));
-                return grp is not null && grp.Confidence >= 0.85;
+                return _duplicateMembership.TryGetValue(c.Id, out var conf) && conf >= 0.85;
             default:
                 return true;
         }
+    }
+
+    /// <summary>Refresh the per-contact membership map. O(n) over all duplicate-group
+    /// members instead of O(n²) per ContactsView refresh row.</summary>
+    private void RebuildDuplicateMembership()
+    {
+        var map = new Dictionary<Guid, double>(_duplicateMembership.Count);
+        foreach (var g in Duplicates)
+        {
+            foreach (var m in g.Members)
+            {
+                // If a contact is in two groups (rare but possible during pair-scoring),
+                // remember the higher confidence so the "high confidence" queue is honest.
+                if (!map.TryGetValue(m.Id, out var existing) || g.Confidence > existing)
+                    map[m.Id] = g.Confidence;
+            }
+        }
+        _duplicateMembership = map;
     }
 
     private MatchRules GetMatchRules() => _settings.MatchProfile switch
@@ -148,22 +214,22 @@ public partial class MainViewModel : ObservableObject
         _ => MatchRules.Default,
     };
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportVCardAsync() => await RunImport("vCard files (*.vcf;*.vcard)|*.vcf;*.vcard|All files (*.*)|*.*", _vcard, SourceKind.File);
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportGoogleCsvAsync() => await RunImport("Google CSV (*.csv)|*.csv|All files (*.*)|*.*", _googleCsv, SourceKind.GoogleCsv);
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportOutlookCsvAsync() => await RunImport("Outlook CSV (*.csv)|*.csv|All files (*.*)|*.*", _outlookCsv, SourceKind.OutlookCsv);
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportLdifAsync() => await RunImport("LDIF (*.ldif)|*.ldif|All files (*.*)|*.*", _ldif, SourceKind.Thunderbird);
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportJCardAsync() => await RunImport("jCard (*.jcard;*.jcf;*.json)|*.jcard;*.jcf;*.json|All files (*.*)|*.*", _jcard, SourceKind.File);
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportCardDavAsync()
     {
         // Pre-fill from vault if Windows + an existing entry exists.
@@ -186,23 +252,41 @@ public partial class MainViewModel : ObservableObject
         if (CredentialVault.IsSupported && dlg.SaveCredentials)
             _vault.Save("carddav", dlg.Username, dlg.Password);
 
-        var serverUri = new Uri(dlg.ServerUrl);
+        if (!Uri.TryCreate(dlg.ServerUrl, UriKind.Absolute, out var serverUri))
+        {
+            StatusMessage = "CardDAV import cancelled (invalid server URL).";
+            return;
+        }
         var importer = new CardDavImporter(
             () => new CardDavClient(serverUri, dlg.Username, dlg.Password),
             dlg.SelectedBook.Url);
 
         StatusMessage = $"Generating preview for CardDAV {dlg.SelectedBook.DisplayName}…";
-        var source = _repo.UpsertSource(new ContactSource
-        {
-            Kind = SourceKind.CardDav,
-            Label = dlg.SelectedBook.DisplayName,
-            FilePath = dlg.SelectedBook.Url,
-            Account = dlg.Username,
-        });
-        if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
 
-        var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
-        var report = await previewer.PreviewAsync(importer, dlg.SelectedBook.Url, source.Id);
+        ContactSource source;
+        ImportPreviewReport report;
+        try
+        {
+            source = _repo.UpsertSource(new ContactSource
+            {
+                Kind = SourceKind.CardDav,
+                Label = dlg.SelectedBook.DisplayName,
+                FilePath = dlg.SelectedBook.Url,
+                Account = dlg.Username,
+            });
+            if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
+
+            var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
+            report = await previewer.PreviewAsync(importer, dlg.SelectedBook.Url, source.Id);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"CardDAV preview failed: {ex.Message}";
+            MessageBox.Show(Application.Current.MainWindow,
+                $"Could not fetch the address book:\n\n{ex.Message}",
+                "CardDAV", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
 
         var preview = new ImportPreviewDialog(dlg.SelectedBook.DisplayName, report) { Owner = Application.Current.MainWindow };
         if (preview.ShowDialog() != true)
@@ -224,30 +308,54 @@ public partial class MainViewModel : ObservableObject
         }
 
         var added = 0; var updated = 0; var skipped = 0;
-        using var tx = _repo.BeginTransaction();
-        foreach (var item in report.Items)
+        var pendingNew = new List<Contact>();
+        var pendingUpdates = new List<Contact>();
+        try
         {
-            var c = item.Incoming;
-            c.SourceId = source.Id;
-            c.ImportId = import.Id;
-            StampSourceOnChildren(c, source.Id);
-            switch (item.Action)
+            using var tx = _repo.BeginTransaction();
+            foreach (var item in report.Items)
             {
-                case ImportAction.New:
-                    _repo.InsertContact(c, tx); Contacts.Add(c); added++;
-                    break;
-                case ImportAction.UpdateNewer:
-                    if (item.Existing is not null) c.Id = item.Existing.Id;
-                    _repo.UpdateContact(c, tx);
-                    var idx = IndexOfContact(c.Id);
-                    if (idx >= 0) Contacts[idx] = c;
-                    updated++;
-                    break;
-                default:
-                    skipped++; break;
+                var c = item.Incoming;
+                c.SourceId = source.Id;
+                c.ImportId = import.Id;
+                StampSourceOnChildren(c, source.Id);
+                switch (item.Action)
+                {
+                    case ImportAction.New:
+                        _repo.InsertContact(c, tx); pendingNew.Add(c); added++;
+                        break;
+                    case ImportAction.UpdateNewer:
+                        if (item.Existing is not null) c.Id = item.Existing.Id;
+                        _repo.UpdateContact(c, tx);
+                        pendingUpdates.Add(c);
+                        updated++;
+                        break;
+                    default:
+                        skipped++; break;
+                }
             }
+            tx.Commit();
         }
-        tx.Commit();
+        catch (Exception ex)
+        {
+            import.FinishedAt = DateTimeOffset.UtcNow;
+            import.Status = ImportStatus.Failed;
+            import.Notes = ex.Message;
+            try { _repo.FinishImport(import); } catch { }
+            StatusMessage = $"CardDAV import failed mid-commit: {ex.Message}";
+            MessageBox.Show(Application.Current.MainWindow,
+                $"The CardDAV import was rolled back.\n\n{ex.Message}",
+                "CardDAV", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        foreach (var c in pendingNew) Contacts.Add(c);
+        foreach (var c in pendingUpdates)
+        {
+            var idx = IndexOfContact(c.Id);
+            if (idx >= 0) Contacts[idx] = c;
+        }
+
         import.FinishedAt = DateTimeOffset.UtcNow;
         import.Status = ImportStatus.Committed;
         import.ContactsCreated = added;
@@ -275,16 +383,35 @@ public partial class MainViewModel : ObservableObject
         var fileName = dlg.FileName;
         StatusMessage = $"Generating preview for {Path.GetFileName(fileName)}…";
 
-        var source = _repo.UpsertSource(new ContactSource
+        ImportPreviewReport report;
+        ContactSource source;
+        try
         {
-            Kind = kind,
-            Label = Path.GetFileNameWithoutExtension(fileName),
-            FilePath = fileName,
-        });
-        if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
+            source = _repo.UpsertSource(new ContactSource
+            {
+                Kind = kind,
+                Label = Path.GetFileNameWithoutExtension(fileName),
+                FilePath = fileName,
+            });
+            if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
 
-        var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
-        var report = await previewer.PreviewAsync(importer, fileName, source.Id);
+            var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
+            report = await previewer.PreviewAsync(importer, fileName, source.Id);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not read {Path.GetFileName(fileName)}: {ex.Message}";
+            MessageBox.Show(Application.Current.MainWindow,
+                $"Could not read the file:\n\n{ex.Message}",
+                "Import failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (report.Items.Count == 0)
+        {
+            StatusMessage = $"{Path.GetFileName(fileName)}: nothing to import (file parsed to 0 contacts).";
+            return;
+        }
 
         var dialog = new ImportPreviewDialog(fileName, report) { Owner = Application.Current.MainWindow };
         if (dialog.ShowDialog() != true)
@@ -314,35 +441,64 @@ public partial class MainViewModel : ObservableObject
         var added = 0;
         var updated = 0;
         var skipped = 0;
+        var pendingNew = new List<Contact>();
+        var pendingUpdates = new List<Contact>();
 
-        using var tx = _repo.BeginTransaction();
-        foreach (var item in report.Items)
+        // Stage the changes inside a transaction — only mutate the UI ObservableCollection
+        // after the commit succeeds so a SQL failure mid-loop doesn't leave the in-memory
+        // list ahead of the database.
+        try
         {
-            var c = item.Incoming;
-            c.SourceId = source.Id;
-            c.ImportId = import.Id;
-            StampSourceOnChildren(c, source.Id);
-
-            switch (item.Action)
+            using var tx = _repo.BeginTransaction();
+            foreach (var item in report.Items)
             {
-                case ImportAction.New:
-                    _repo.InsertContact(c, tx);
-                    Contacts.Add(c);
-                    added++;
-                    break;
-                case ImportAction.UpdateNewer:
-                    if (item.Existing is not null) c.Id = item.Existing.Id;
-                    _repo.UpdateContact(c, tx);
-                    var idx = IndexOfContact(c.Id);
-                    if (idx >= 0) Contacts[idx] = c;
-                    updated++;
-                    break;
-                default:
-                    skipped++;
-                    break;
+                var c = item.Incoming;
+                c.SourceId = source.Id;
+                c.ImportId = import.Id;
+                StampSourceOnChildren(c, source.Id);
+
+                switch (item.Action)
+                {
+                    case ImportAction.New:
+                        _repo.InsertContact(c, tx);
+                        pendingNew.Add(c);
+                        added++;
+                        break;
+                    case ImportAction.UpdateNewer:
+                        if (item.Existing is not null) c.Id = item.Existing.Id;
+                        _repo.UpdateContact(c, tx);
+                        pendingUpdates.Add(c);
+                        updated++;
+                        break;
+                    default:
+                        skipped++;
+                        break;
+                }
             }
+            tx.Commit();
         }
-        tx.Commit();
+        catch (Exception ex)
+        {
+            // Mark the import as Failed so the history pane shows the truth, but leave
+            // the partial rollback snapshot intact for diagnostics.
+            import.FinishedAt = DateTimeOffset.UtcNow;
+            import.Status = ImportStatus.Failed;
+            import.Notes = ex.Message;
+            try { _repo.FinishImport(import); } catch { /* don't mask the root cause */ }
+            StatusMessage = $"Import failed mid-commit: {ex.Message}";
+            MessageBox.Show(Application.Current.MainWindow,
+                $"The import was rolled back.\n\n{ex.Message}",
+                "Import failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // Commit succeeded — sync UI now.
+        foreach (var c in pendingNew) Contacts.Add(c);
+        foreach (var c in pendingUpdates)
+        {
+            var idx = IndexOfContact(c.Id);
+            if (idx >= 0) Contacts[idx] = c;
+        }
 
         import.FinishedAt = DateTimeOffset.UtcNow;
         import.Status = ImportStatus.Committed;
@@ -358,7 +514,7 @@ public partial class MainViewModel : ObservableObject
             $"Total: {Contacts.Count}. Duplicate groups: {Duplicates.Count}.";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ExportVCardAsync()
     {
         if (Contacts.Count == 0) { StatusMessage = "Nothing to export."; return; }
@@ -370,33 +526,45 @@ public partial class MainViewModel : ObservableObject
         };
         if (dlg.ShowDialog() != true) return;
 
-        switch (dlg.FilterIndex)
+        // Snapshot once so a concurrent import / merge doesn't trip the writers' enumerators.
+        var snapshot = Contacts.ToList();
+        try
         {
-            case 1:
-                await _vcardWriter.WriteFileAsync(dlg.FileName, Contacts);
-                _history.Audit("export.vcard3", payload: $"file={dlg.FileName};count={Contacts.Count}");
-                break;
-            case 2:
-                await new VCardWriter { Version = VCardVersion.V4_0 }.WriteFileAsync(dlg.FileName, Contacts);
-                _history.Audit("export.vcard4", payload: $"file={dlg.FileName};count={Contacts.Count}");
-                break;
-            case 3:
-                await _googleCsvWriter.WriteFileAsync(dlg.FileName, Contacts.ToList());
-                _history.Audit("export.googlecsv", payload: $"file={dlg.FileName};count={Contacts.Count}");
-                break;
-            case 4:
-                await _outlookCsvWriter.WriteFileAsync(dlg.FileName, Contacts.ToList());
-                _history.Audit("export.outlookcsv", payload: $"file={dlg.FileName};count={Contacts.Count}");
-                break;
-            case 5:
-                await _jcardWriter.WriteFileAsync(dlg.FileName, Contacts.ToList());
-                _history.Audit("export.jcard", payload: $"file={dlg.FileName};count={Contacts.Count}");
-                break;
+            switch (dlg.FilterIndex)
+            {
+                case 1:
+                    await _vcardWriter.WriteFileAsync(dlg.FileName, snapshot);
+                    _history.Audit("export.vcard3", payload: $"file={dlg.FileName};count={snapshot.Count}");
+                    break;
+                case 2:
+                    await new VCardWriter { Version = VCardVersion.V4_0 }.WriteFileAsync(dlg.FileName, snapshot);
+                    _history.Audit("export.vcard4", payload: $"file={dlg.FileName};count={snapshot.Count}");
+                    break;
+                case 3:
+                    await _googleCsvWriter.WriteFileAsync(dlg.FileName, snapshot);
+                    _history.Audit("export.googlecsv", payload: $"file={dlg.FileName};count={snapshot.Count}");
+                    break;
+                case 4:
+                    await _outlookCsvWriter.WriteFileAsync(dlg.FileName, snapshot);
+                    _history.Audit("export.outlookcsv", payload: $"file={dlg.FileName};count={snapshot.Count}");
+                    break;
+                case 5:
+                    await _jcardWriter.WriteFileAsync(dlg.FileName, snapshot);
+                    _history.Audit("export.jcard", payload: $"file={dlg.FileName};count={snapshot.Count}");
+                    break;
+            }
+            StatusMessage = $"Exported {snapshot.Count} contact(s) to {Path.GetFileName(dlg.FileName)}.";
         }
-        StatusMessage = $"Exported {Contacts.Count} contact(s) to {Path.GetFileName(dlg.FileName)}.";
+        catch (Exception ex)
+        {
+            StatusMessage = $"Export failed: {ex.Message}";
+            MessageBox.Show(Application.Current.MainWindow,
+                $"Could not write the export:\n\n{ex.Message}",
+                "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private void OpenSettings()
     {
         var dlg = new SettingsDialog(_settings) { Owner = Application.Current.MainWindow };
@@ -404,12 +572,23 @@ public partial class MainViewModel : ObservableObject
         {
             _settings.Save(_settingsPath);
             App.ApplyTheme(_settings.Theme);
+            // Rebuild the settings-derived collaborators so a profile change takes effect
+            // on the next rescan / import without needing an app restart.
+            _phoneNormalizer = new PhoneNormalizer(_settings.DefaultRegion);
+            _emailCanon = new EmailCanonicalizer
+            {
+                MergeGoogleMailDomain = _settings.MergeGoogleMailDomain,
+                StripGmailDots = _settings.StripGmailDots,
+                StripPlusTag = _settings.StripPlusTag,
+            };
+            _dedup = new DedupEngine(GetMatchRules(), _emailCanon);
             _history.Audit("settings.save");
-            StatusMessage = "Settings saved.  Re-import or rescan to apply.";
+            RescanDuplicates();
+            StatusMessage = "Settings saved. Re-scanning duplicates with new rules…";
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private void OpenRestoreHistory()
     {
         var dlg = new RestoreHistoryDialog(_repo, _rollback) { Owner = Application.Current.MainWindow };
@@ -421,7 +600,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private void ReviewMerge()
     {
         if (SelectedDuplicateGroup is null) return;
@@ -449,7 +628,7 @@ public partial class MainViewModel : ObservableObject
         StatusMessage = $"Merged into '{result.Survivor.DisplayName}'.";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private void UndoLast()
     {
         var entry = _history.GetMostRecentApplied();
@@ -492,30 +671,45 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private void ClearAll()
     {
-        if (Contacts.Count == 0) return;
+        // Honor the visible filter — the button advertises "all visible contacts" and
+        // wiping items the user can't see is a footgun (especially with the search box
+        // narrowed to a single match).
+        var targets = ContactsView is null
+            ? Contacts.ToList()
+            : ContactsView.Cast<Contact>().ToList();
+        if (targets.Count == 0)
+        {
+            StatusMessage = "Nothing to clear (filter is empty).";
+            return;
+        }
+
+        var hidden = Contacts.Count - targets.Count;
         if (_settings.ConfirmDestructiveActions)
         {
+            var msg = hidden > 0
+                ? $"Soft-delete the {targets.Count} visible contact(s)?  ({hidden} hidden by filter will be kept.)  You can restore them via Restore History."
+                : $"Soft-delete all {targets.Count} contact(s)?  You can restore them via Restore History.";
             var ok = MessageBox.Show(Application.Current.MainWindow,
-                $"Soft-delete all {Contacts.Count} contact(s)? You can restore them via Restore History.",
-                "Clear",
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Warning);
+                msg, "Clear", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (ok != MessageBoxResult.OK) return;
         }
 
+        var idSet = new HashSet<Guid>(targets.Select(t => t.Id));
         using var tx = _repo.BeginTransaction();
-        foreach (var c in Contacts) _repo.SoftDeleteContact(c.Id, tx);
+        foreach (var c in targets) _repo.SoftDeleteContact(c.Id, tx);
         tx.Commit();
-        Contacts.Clear();
-        Duplicates.Clear();
-        StatusMessage = "Cleared (soft-delete).  Use Restore History to roll back.";
-        _history.Audit("contacts.clear");
+        // Mutate the source collection from the back to keep indices stable.
+        for (int i = Contacts.Count - 1; i >= 0; i--)
+            if (idSet.Contains(Contacts[i].Id)) Contacts.RemoveAt(i);
+        RescanDuplicates();
+        StatusMessage = $"Cleared (soft-delete) {targets.Count} contact(s). Use Restore History to roll back.";
+        _history.Audit("contacts.clear", payload: $"count={targets.Count};hidden_kept={hidden}");
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private void RunCleanup()
     {
         if (Contacts.Count == 0) { StatusMessage = "Nothing to clean."; return; }
@@ -527,26 +721,40 @@ public partial class MainViewModel : ObservableObject
         _rollback.CaptureForImport(importId, Contacts.Select(JsonClone).ToList(), $"before cleanup");
 
         var cleaner = new BatchCleanup(_phoneNormalizer, _emailCanon);
-        var report = cleaner.Run(
-            Contacts,
-            dedupePhones: dlg.DedupePhones,
-            dedupeEmails: dlg.DedupeEmails,
-            dedupeUrls: dlg.DedupeUrls,
-            dedupeCategories: dlg.DedupeCategories,
-            normalizePhones: dlg.NormalizePhones,
-            canonicalizeEmails: dlg.CanonicalizeEmails,
-            stripPhotoMetadata: dlg.StripPhotoMetadata,
-            regexEdits: dlg.Regex is null ? null : new[] { dlg.Regex });
+        BatchCleanupReport report;
+        try
+        {
+            report = cleaner.Run(
+                Contacts,
+                dedupePhones: dlg.DedupePhones,
+                dedupeEmails: dlg.DedupeEmails,
+                dedupeUrls: dlg.DedupeUrls,
+                dedupeCategories: dlg.DedupeCategories,
+                normalizePhones: dlg.NormalizePhones,
+                canonicalizeEmails: dlg.CanonicalizeEmails,
+                stripPhotoMetadata: dlg.StripPhotoMetadata,
+                regexEdits: dlg.Regex is null ? null : new[] { dlg.Regex });
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
+        {
+            StatusMessage = $"Cleanup aborted: regex timed out ({ex.Message}).";
+            return;
+        }
 
+        // Persist only the rows that actually changed instead of UPDATE-ing every contact.
+        // For a 5,000-contact database this is the difference between a 5,000-row write
+        // and (typically) tens of writes.
         using var tx = _repo.BeginTransaction();
-        foreach (var c in Contacts) _repo.UpdateContact(c, tx);
+        foreach (var c in Contacts)
+            if (report.TouchedIds.Contains(c.Id))
+                _repo.UpdateContact(c, tx);
         tx.Commit();
         _history.Audit("cleanup.run", payload: report.Summary);
         RescanDuplicates();
         StatusMessage = report.Summary;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private void AutoMerge()
     {
         if (Duplicates.Count == 0) { StatusMessage = "No duplicates."; return; }
@@ -592,21 +800,79 @@ public partial class MainViewModel : ObservableObject
         return System.Text.Json.JsonSerializer.Deserialize<Contact>(json)!;
     }
 
-    [RelayCommand]
+    /// <summary>Threshold at which the duplicate scan moves to a worker thread.
+    /// Below this we keep the synchronous path so small libraries don't pay a context-switch
+    /// tax (and tests stay single-threaded).</summary>
+    private const int AsyncRescanThreshold = 500;
+
+    [RelayCommand(CanExecute = nameof(NotBusy))]
     private void RescanDuplicates()
     {
-        Duplicates.Clear();
-        foreach (var g in _dedup.Find(Contacts)) Duplicates.Add(g);
-        ContactsView?.Refresh();
+        // Snapshot the input collection so the worker doesn't mutate the UI's
+        // ObservableCollection while WPF is iterating it.
+        var snapshot = Contacts.ToList();
+        if (snapshot.Count < AsyncRescanThreshold)
+        {
+            Duplicates.Clear();
+            foreach (var g in _dedup.Find(snapshot)) Duplicates.Add(g);
+            RebuildDuplicateMembership();
+            ContactsView?.Refresh();
+            return;
+        }
+
+        StatusMessage = $"Scanning {snapshot.Count} contacts for duplicates…";
+        IsBusy = true;
+        _ = System.Threading.Tasks.Task.Run(() => _dedup.Find(snapshot))
+            .ContinueWith(t =>
+            {
+                try
+                {
+                    if (t.IsFaulted)
+                    {
+                        StatusMessage = $"Duplicate scan failed: {t.Exception?.GetBaseException().Message}";
+                        return;
+                    }
+                    Duplicates.Clear();
+                    foreach (var g in t.Result) Duplicates.Add(g);
+                    RebuildDuplicateMembership();
+                    ContactsView?.Refresh();
+                    StatusMessage = $"Found {Duplicates.Count} duplicate group(s).";
+                }
+                finally { IsBusy = false; }
+            }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     private void ReloadFromStore()
     {
-        Contacts.Clear();
-        foreach (var c in _repo.ListContacts()) Contacts.Add(c);
-        Sources.Clear();
-        foreach (var s in _repo.ListSources()) Sources.Add(s);
-        RescanDuplicates();
+        // Heavy: blocking SQLite read + dedup pass. Push to a worker so the UI keeps
+        // painting; marshal results back via the captured sync context.
+        // We set IsBusy *before* dispatching so the gate is closed for any UI command
+        // dispatched between now and the continuation — closing the
+        // single-connection-not-thread-safe race window.
+        StatusMessage = "Reloading contacts…";
+        IsBusy = true;
+        _ = System.Threading.Tasks.Task.Run(() =>
+            (contacts: _repo.ListContacts(), sources: _repo.ListSources()))
+            .ContinueWith(t =>
+            {
+                try
+                {
+                    if (t.IsFaulted)
+                    {
+                        StatusMessage = $"Reload failed: {t.Exception?.GetBaseException().Message}";
+                        return;
+                    }
+                    Contacts.Clear();
+                    foreach (var c in t.Result.contacts) Contacts.Add(c);
+                    Sources.Clear();
+                    foreach (var s in t.Result.sources) Sources.Add(s);
+                    StatusMessage = $"Loaded {Contacts.Count} contact(s).";
+                }
+                finally { IsBusy = false; }
+                // Now that the gate is open again, kick off the rescan (which will
+                // re-acquire IsBusy if the contact count crosses the async threshold).
+                RescanDuplicates();
+            }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     private int IndexOfContact(Guid id)

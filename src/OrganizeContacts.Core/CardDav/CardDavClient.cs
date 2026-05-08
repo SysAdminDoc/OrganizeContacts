@@ -14,11 +14,17 @@ public sealed record AddressBookInfo(string Url, string DisplayName);
 /// Uses Basic auth (compatible with Nextcloud, Baikal, Radicale, iCloud
 /// app-specific passwords, Fastmail app-passwords). OAuth flows are out of scope.
 /// </summary>
-public sealed class CardDavClient
+public sealed class CardDavClient : IDisposable
 {
     private readonly HttpClient _http;
+    private readonly bool _ownsHttp;
 
-    public CardDavClient(HttpClient http) => _http = http;
+    /// <summary>Used by tests / DI: caller owns the HttpClient lifetime.</summary>
+    public CardDavClient(HttpClient http)
+    {
+        _http = http;
+        _ownsHttp = false;
+    }
 
     public CardDavClient(Uri baseUri, string username, string password)
     {
@@ -27,10 +33,21 @@ public sealed class CardDavClient
             AllowAutoRedirect = true,
             UseCookies = true,
         };
-        _http = new HttpClient(handler) { BaseAddress = baseUri };
+        _http = new HttpClient(handler)
+        {
+            BaseAddress = baseUri,
+            // Cap server hangs — without this, a misconfigured server can freeze the dialog.
+            Timeout = TimeSpan.FromSeconds(60),
+        };
+        _ownsHttp = true;
         var bytes = Encoding.UTF8.GetBytes($"{username}:{password}");
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(bytes));
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("OrganizeContacts/0.3 (+local-first)");
+    }
+
+    public void Dispose()
+    {
+        if (_ownsHttp) _http.Dispose();
     }
 
     /// <summary>

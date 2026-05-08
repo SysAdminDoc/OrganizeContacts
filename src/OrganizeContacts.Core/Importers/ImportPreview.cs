@@ -1,3 +1,4 @@
+using System.Globalization;
 using OrganizeContacts.Core.Models;
 using OrganizeContacts.Core.Normalize;
 using OrganizeContacts.Core.Storage;
@@ -73,7 +74,7 @@ public sealed class ImportPreviewer
                 continue;
             }
 
-            var cmp = string.Compare(incoming.Rev ?? string.Empty, existing.Rev ?? string.Empty, StringComparison.Ordinal);
+            var cmp = CompareRev(incoming.Rev, existing.Rev);
             if (cmp > 0)
                 report.Items.Add(new ImportPreviewItem(incoming, existing, ImportAction.UpdateNewer, $"REV {incoming.Rev} > {existing.Rev}"));
             else if (cmp == 0)
@@ -83,5 +84,47 @@ public sealed class ImportPreviewer
         }
 
         return report;
+    }
+
+    /// <summary>
+    /// Compare two vCard REV strings. Both ISO-8601 timestamps and date-only forms are
+    /// expected, so we try a real DateTime parse first and only fall back to ordinal
+    /// string compare when neither side parses (safer than trusting lexicographic
+    /// order on mixed formats like "2026-04-01" vs "20260401T120000Z").
+    /// </summary>
+    internal static int CompareRev(string? a, string? b)
+    {
+        var aMissing = string.IsNullOrEmpty(a);
+        var bMissing = string.IsNullOrEmpty(b);
+        if (aMissing && bMissing) return 0;
+        if (aMissing) return -1;
+        if (bMissing) return 1;
+
+        if (TryParseRev(a!, out var ta) && TryParseRev(b!, out var tb))
+            return ta.CompareTo(tb);
+
+        // One or both unparseable — preserve old ordinal behavior so a manually-edited
+        // bumped string ("2") is still treated as "newer" than the prior "1".
+        return string.Compare(a, b, StringComparison.Ordinal);
+    }
+
+    private static bool TryParseRev(string s, out DateTimeOffset value)
+    {
+        // ISO-8601 with or without separators / Z suffix. AssumeUniversal so naked
+        // timestamps don't get re-anchored to local time before being compared.
+        var formats = new[]
+        {
+            "yyyy-MM-ddTHH:mm:ssZ",
+            "yyyy-MM-ddTHH:mm:ss.fffZ",
+            "yyyyMMddTHHmmssZ",
+            "yyyy-MM-ddTHH:mm:ss",
+            "yyyy-MM-dd",
+            "yyyyMMdd",
+        };
+        if (DateTimeOffset.TryParseExact(s, formats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out value))
+            return true;
+        return DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out value);
     }
 }

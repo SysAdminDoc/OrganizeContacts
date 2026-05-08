@@ -80,10 +80,13 @@ public sealed class OutlookCsvImporter : IContactImporter
         }
         if (!string.IsNullOrWhiteSpace(contact.Organization)) seen = true;
 
+        // Use the same invariant-culture parser as the Google importer — Outlook for Windows
+        // emits dates in the host culture, but we read those exports on every culture and
+        // can't trust the current thread's locale.
         var bday = Get("Birthday");
-        if (DateOnly.TryParse(bday, out var bd)) contact.Birthday = bd;
+        if (GoogleCsvImporter.TryParseCsvDate(bday, out var bd)) contact.Birthday = bd;
         var ann = Get("Anniversary");
-        if (DateOnly.TryParse(ann, out var an)) contact.Anniversary = an;
+        if (GoogleCsvImporter.TryParseCsvDate(ann, out var an)) contact.Anniversary = an;
 
         // Up to three e-mail addresses in the standard Outlook schema.
         for (int n = 1; n <= 3; n++)

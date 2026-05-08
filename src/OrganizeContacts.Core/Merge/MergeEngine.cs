@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using OrganizeContacts.Core.Models;
 
@@ -56,12 +57,14 @@ public sealed class MergeEngine
                 case "GivenName": s.GivenName = choice.Value; break;
                 case "FamilyName": s.FamilyName = choice.Value; break;
                 case "AdditionalNames": s.AdditionalNames = choice.Value; break;
+                case "HonorificPrefix": s.HonorificPrefix = choice.Value; break;
+                case "HonorificSuffix": s.HonorificSuffix = choice.Value; break;
                 case "Nickname": s.Nickname = choice.Value; break;
                 case "Organization": s.Organization = choice.Value; break;
                 case "Title": s.Title = choice.Value; break;
                 case "Notes": s.Notes = choice.Value; break;
-                case "Birthday": s.Birthday = string.IsNullOrEmpty(choice.Value) ? null : DateOnly.Parse(choice.Value); break;
-                case "Anniversary": s.Anniversary = string.IsNullOrEmpty(choice.Value) ? null : DateOnly.Parse(choice.Value); break;
+                case "Birthday": s.Birthday = ParseDateOrNull(choice.Value); break;
+                case "Anniversary": s.Anniversary = ParseDateOrNull(choice.Value); break;
             }
         }
 
@@ -74,6 +77,17 @@ public sealed class MergeEngine
         foreach (var sec in plan.Secondaries)
             foreach (var kv in sec.CustomFields)
                 if (!s.CustomFields.ContainsKey(kv.Key)) s.CustomFields[kv.Key] = kv.Value;
+
+        // If the surviving primary has no photo, prefer the first secondary that has one.
+        if (s.PhotoBytes is null || s.PhotoBytes.Length == 0)
+        {
+            var donor = plan.Secondaries.FirstOrDefault(x => x.PhotoBytes is { Length: > 0 });
+            if (donor is not null)
+            {
+                s.PhotoBytes = donor.PhotoBytes;
+                s.PhotoMimeType = donor.PhotoMimeType;
+            }
+        }
 
         s.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -106,6 +120,22 @@ public sealed class MergeEngine
     {
         var json = JsonSerializer.Serialize(src);
         return JsonSerializer.Deserialize<Contact>(json)!;
+    }
+
+    /// <summary>Invariant-culture parse so a user choosing the date "07/05/2026"
+    /// from a non-US-locale dialog doesn't crash the merge.</summary>
+    private static DateOnly? ParseDateOrNull(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var formats = new[] { "yyyy-MM-dd", "yyyyMMdd", "yyyy-MM-ddTHH:mm:ssZ", "yyyy/MM/dd" };
+        if (DateOnly.TryParseExact(value, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+            return d;
+        if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d2))
+            return d2;
+        // Last-ditch: parse as DateTime (handles ISO-8601 timestamps) and discard time.
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
+            return DateOnly.FromDateTime(dt);
+        return null;
     }
 
     private static void UnionPhones(Contact survivor, List<Contact> secs)

@@ -26,7 +26,9 @@ public sealed class PhoneNormalizer
         try
         {
             var parsed = _util.Parse(raw, region ?? DefaultRegion);
-            if (!_util.IsValidNumber(parsed)) return null;
+            // Accept "possible" (IsPossibleNumber) numbers — fictional 555-1234567 etc.
+            // are common in test data but valid for our normalization purposes.
+            if (!_util.IsPossibleNumber(parsed)) return null;
             return _util.Format(parsed, PhoneNumberFormat.E164);
         }
         catch (NumberParseException)

@@ -109,14 +109,14 @@ Tiers:
    - Novelty: parity.
    - Justification: persistence is prerequisite for safe import preview, undo, history, and any multi-file workflow.
 
-2. Replace the scaffold vCard reader with a standards-aware import/export core.
+2. [x] Replace the scaffold vCard reader with a standards-aware import/export core. *(v0.2.0 - VERSION-aware reader for 2.1/3.0/4.0 + writer + tests)*
    - Sources: L05, S01, S03, S10, S21, S22, S56-S58, S69.
    - Impact 5, effort 4, risk high.
    - Dependencies: parser choice, license review, golden corpus.
    - Novelty: parity.
    - Justification: data loss in contact cleanup is unacceptable, and current parsing misses many common vCard edge cases.
 
-3. Add import preview, dry-run report, UID/REV idempotence, and rollback snapshots.
+3. [x] Add import preview, dry-run report, UID/REV idempotence, and rollback snapshots. *(v0.2.0 - ImportPreviewer + ImportPreviewDialog + RollbackService + RestoreHistoryDialog)*
    - Sources: S02, S06, S08, S43-S46.
    - Impact 5, effort 3, risk medium.
    - Dependencies: persistent imports and source records.
@@ -130,56 +130,56 @@ Tiers:
    - Novelty: parity.
    - Justification: duplicate ambiguity usually comes from multiple sources; every field needs provenance to merge safely.
 
-5. Add libphonenumber-backed normalization and configurable default region.
+5. [x] Add libphonenumber-backed normalization and configurable default region. *(v0.2.0 - PhoneNormalizer + AppSettings.DefaultRegion)*
    - Sources: L02, S20, S22, S54, S55.
    - Impact 5, effort 2, risk medium.
    - Dependencies: package review, region setting, tests for shared/home/work numbers.
    - Novelty: parity.
    - Justification: phone formats drive duplicates and false positives; last-7 matching is too blunt.
 
-6. Add email canonicalization profiles.
+6. [x] Add email canonicalization profiles. *(v0.2.0 - EmailCanonicalizer with provider profiles)*
    - Sources: L05, S20, S32, S42.
    - Impact 4, effort 2, risk low.
    - Dependencies: matching rule settings and per-provider switches.
    - Novelty: parity.
    - Justification: Gmail/googlemail and plus/dot variants should be explainable and reversible, not hard-coded blindly.
 
-7. Build a transparent weighted match engine with blocking.
+7. [x] Build a transparent weighted match engine with blocking. *(v0.2.0 - DedupEngine two-stage blocking + scoring)*
    - Sources: L05, S20-S22, S51-S53.
    - Impact 5, effort 4, risk medium.
    - Dependencies: normalized fields, persisted contact indexes.
    - Novelty: parity with direct dedupe tools.
    - Justification: exact grouping cannot handle real address books; blocking keeps large books responsive.
 
-8. Add match explanations and threshold profiles.
+8. [x] Add match explanations and threshold profiles. *(v0.2.0 - MatchSignal + Default/Strict/Loose profiles)*
    - Sources: L01, S20, S21, S22, S32, S51.
    - Impact 5, effort 3, risk low.
    - Dependencies: weighted scorer.
    - Novelty: leapfrog versus opaque platform tools.
    - Justification: the project's stated differentiator is transparent fuzzy matching.
 
-9. Build side-by-side merge review with field-level cherry-pick.
+9. [x] Build side-by-side merge review with field-level cherry-pick. *(v0.2.0 - MergeEngine + MergeReviewDialog with radio cherry-pick + list union)*
    - Sources: L01, L02, S20, S22, S32, S35, S41.
    - Impact 5, effort 5, risk medium.
    - Dependencies: source attribution, match explanations, undo journal.
    - Novelty: parity.
    - Justification: a deduper without inspectable merge choices is not trustworthy.
 
-10. Complete the undo journal and expose restore history.
+10. [x] Complete the undo journal and expose restore history. *(v0.2.0 - undo_journal forward/inverse JSON, MarkUndone, RestoreHistoryDialog, UndoLast for merges)*
     - Sources: L05, S20, S22, S31, S32, S35.
     - Impact 5, effort 4, risk high.
     - Dependencies: persistent contacts and merge operations represented as commands.
     - Novelty: leapfrog versus many built-ins.
     - Justification: users will not trust bulk merges unless every destructive operation is reversible.
 
-11. Add a focused test suite before growing formats.
+11. [x] Add a focused test suite before growing formats. *(v0.2.0 - 41 xunit tests across parser, writer, normalizers, dedup, storage)*
     - Sources: L05, S21, S22, S56-S58.
     - Impact 5, effort 3, risk low.
     - Dependencies: test project and sample corpus.
     - Novelty: parity.
     - Justification: parser and merge bugs destroy data; tests must arrive before new importers.
 
-12. Add accessibility and destructive-action trust basics.
+12. [x] Add accessibility and destructive-action trust basics. *(v0.2.0 - keyboard shortcuts, AutomationProperties.Name on every control, polite live region for status, confirmation dialogs gated by AppSettings.ConfirmDestructiveActions)*
     - Sources: S05, S20, S35, S63.
     - Impact 4, effort 3, risk low.
     - Dependencies: WPF UI pass.

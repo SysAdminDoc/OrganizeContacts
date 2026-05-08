@@ -1,0 +1,77 @@
+<Window x:Class="OrganizeContacts.App.Views.SettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings"
+        Height="500" Width="540"
+        MinHeight="420" MinWidth="500"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Settings"
+                   FontSize="18" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}"
+                   Margin="0,0,0,18" />
+
+        <StackPanel Grid.Row="1">
+            <TextBlock Text="Phone normalization region"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource Subtext1Brush}"
+                       Margin="0,0,0,4" />
+            <TextBlock Text="ISO 3166-1 alpha-2 (US, GB, CA, DE, …). Determines how local numbers parse to E.164."
+                       Foreground="{StaticResource Subtext0Brush}" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap" />
+            <TextBox x:Name="RegionBox" MaxLength="3" Width="80" HorizontalAlignment="Left"
+                     AutomationProperties.Name="Default phone region (ISO code)" />
+
+            <TextBlock Text="Match profile" Margin="0,18,0,4"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource Subtext1Brush}" />
+            <ComboBox x:Name="ProfileCombo" Width="180" HorizontalAlignment="Left"
+                      AutomationProperties.Name="Match profile">
+                <ComboBoxItem Content="Default" />
+                <ComboBoxItem Content="Strict" />
+                <ComboBoxItem Content="Loose" />
+            </ComboBox>
+            <TextBlock Foreground="{StaticResource Subtext0Brush}" FontSize="11"
+                       Margin="0,4,0,0"
+                       Text="Strict: high name floor, low fuzzy weight. Loose: more lenient."
+                       TextWrapping="Wrap" />
+
+            <TextBlock Text="Email canonicalization" Margin="0,18,0,4"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource Subtext1Brush}" />
+            <CheckBox x:Name="MergeGoogleMailBox"
+                      Content="Treat googlemail.com and gmail.com as the same domain"
+                      Margin="0,4,0,0"
+                      Foreground="{StaticResource Subtext0Brush}" />
+            <CheckBox x:Name="StripGmailDotsBox"
+                      Content="Ignore dots in Gmail local-part"
+                      Margin="0,4,0,0"
+                      Foreground="{StaticResource Subtext0Brush}" />
+            <CheckBox x:Name="StripPlusTagBox"
+                      Content="Strip +tag suffixes (Gmail / FastMail / Proton / iCloud / Outlook)"
+                      Margin="0,4,0,0"
+                      Foreground="{StaticResource Subtext0Brush}" />
+
+            <TextBlock Text="Trust" Margin="0,18,0,4"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource Subtext1Brush}" />
+            <CheckBox x:Name="ConfirmDestructiveBox"
+                      Content="Confirm before destructive actions (clear, merge, rollback)"
+                      Margin="0,4,0,0"
+                      Foreground="{StaticResource Subtext0Brush}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="Cancel" Click="OnCancel" Margin="0,0,10,0" IsCancel="True" />
+            <Button Content="Save" Click="OnSave"
+                    Style="{StaticResource AccentButton}" IsDefault="True" />
+        </StackPanel>
+    </Grid>
+</Window>

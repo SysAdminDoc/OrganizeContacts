@@ -1,0 +1,76 @@
+<Window x:Class="OrganizeContacts.App.Views.MergeReviewDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Merge review"
+        Height="640" Width="980"
+        MinHeight="520" MinWidth="820"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" FontSize="16" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}"
+                   Text="Merge review" />
+
+        <TextBlock Grid.Row="1" x:Name="ConfidenceText" Margin="0,4,0,12"
+                   Foreground="{StaticResource Subtext0Brush}" />
+
+        <Border Grid.Row="2"
+                Background="{StaticResource MantleBrush}"
+                BorderBrush="{StaticResource Surface0Brush}"
+                BorderThickness="1" CornerRadius="6">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="FieldList" Margin="12">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding FieldLabel}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource Subtext1Brush}" />
+                                <RadioButton Grid.Column="1"
+                                             GroupName="{Binding FieldLabel}"
+                                             IsChecked="{Binding ChooseLeft, Mode=TwoWay}"
+                                             Content="{Binding LeftValue}"
+                                             ToolTip="{Binding LeftValue}"
+                                             Foreground="{StaticResource TextBrush}"
+                                             Padding="6,2" />
+                                <RadioButton Grid.Column="2"
+                                             GroupName="{Binding FieldLabel}"
+                                             IsChecked="{Binding ChooseRight, Mode=TwoWay}"
+                                             Content="{Binding RightValue}"
+                                             ToolTip="{Binding RightValue}"
+                                             Foreground="{StaticResource TextBrush}"
+                                             Padding="6,2" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <CheckBox Grid.Row="3" x:Name="DeleteSecondariesBox"
+                  Content="Delete secondaries after merge (rollback-able)"
+                  IsChecked="True" Margin="0,12,0,0"
+                  Foreground="{StaticResource Subtext0Brush}" />
+
+        <DockPanel Grid.Row="4" Margin="0,12,0,0">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                <Button Content="Cancel" Click="OnCancel" Margin="0,0,10,0" IsCancel="True" />
+                <Button Content="Apply merge" Click="OnApply"
+                        Style="{StaticResource AccentButton}" IsDefault="True" />
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

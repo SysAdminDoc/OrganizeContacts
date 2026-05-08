@@ -24,7 +24,7 @@ public sealed class MatchRules
 
     // Acceptance
     public double AutoMergeThreshold { get; init; } = 0.95;
-    public double ReviewThreshold { get; init; } = 0.55;
+    public double ReviewThreshold { get; init; } = 0.40;
     public double NameSimilarityFloor { get; init; } = 0.78;
 
     public static MatchRules Default { get; } = new();

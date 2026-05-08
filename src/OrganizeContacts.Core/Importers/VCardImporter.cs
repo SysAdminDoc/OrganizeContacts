@@ -102,7 +102,7 @@ public sealed class VCardImporter : IContactImporter
                     break; // already captured
 
                 case "UID":
-                    contact.Uid = prop.Value;
+                    contact.Uid = UnescapeText(prop.Value);
                     break;
 
                 case "REV":
@@ -110,33 +110,33 @@ public sealed class VCardImporter : IContactImporter
                     break;
 
                 case "FN":
-                    contact.FormattedName = prop.Value;
+                    contact.FormattedName = UnescapeText(prop.Value);
                     seenAny = true;
                     break;
 
                 case "N":
                 {
                     var n = SplitStructured(prop.Value);
-                    if (n.Length >= 1) contact.FamilyName = NullIfEmpty(n[0]);
-                    if (n.Length >= 2) contact.GivenName = NullIfEmpty(n[1]);
-                    if (n.Length >= 3) contact.AdditionalNames = NullIfEmpty(n[2]);
-                    if (n.Length >= 4) contact.HonorificPrefix = NullIfEmpty(n[3]);
-                    if (n.Length >= 5) contact.HonorificSuffix = NullIfEmpty(n[4]);
+                    if (n.Length >= 1) contact.FamilyName = NullIfEmpty(UnescapeText(n[0]));
+                    if (n.Length >= 2) contact.GivenName = NullIfEmpty(UnescapeText(n[1]));
+                    if (n.Length >= 3) contact.AdditionalNames = NullIfEmpty(UnescapeText(n[2]));
+                    if (n.Length >= 4) contact.HonorificPrefix = NullIfEmpty(UnescapeText(n[3]));
+                    if (n.Length >= 5) contact.HonorificSuffix = NullIfEmpty(UnescapeText(n[4]));
                     seenAny = true;
                     break;
                 }
 
                 case "NICKNAME":
-                    contact.Nickname = prop.Value;
+                    contact.Nickname = UnescapeText(prop.Value);
                     break;
 
                 case "ORG":
-                    contact.Organization = SplitStructured(prop.Value).FirstOrDefault();
+                    contact.Organization = NullIfEmpty(UnescapeText(SplitStructured(prop.Value).FirstOrDefault() ?? string.Empty));
                     break;
 
                 case "TITLE":
                 case "ROLE":
-                    if (string.IsNullOrEmpty(contact.Title)) contact.Title = prop.Value;
+                    if (string.IsNullOrEmpty(contact.Title)) contact.Title = UnescapeText(prop.Value);
                     break;
 
                 case "BDAY":
@@ -148,12 +148,12 @@ public sealed class VCardImporter : IContactImporter
                     break;
 
                 case "NOTE":
-                    contact.Notes = prop.Value;
+                    contact.Notes = UnescapeText(prop.Value);
                     break;
 
                 case "TEL":
                     contact.Phones.Add(PhoneNumber.Parse(
-                        prop.Value,
+                        UnescapeText(prop.Value),
                         ParsePhoneKind(prop),
                         prop.IsPreferred));
                     break;
@@ -161,7 +161,7 @@ public sealed class VCardImporter : IContactImporter
                 case "EMAIL":
                     contact.Emails.Add(new EmailAddress
                     {
-                        Address = prop.Value,
+                        Address = UnescapeText(prop.Value),
                         Kind = ParseEmailKind(prop),
                         IsPreferred = prop.IsPreferred,
                     });
@@ -172,25 +172,25 @@ public sealed class VCardImporter : IContactImporter
                     var a = SplitStructured(prop.Value);
                     contact.Addresses.Add(new PostalAddress
                     {
-                        PoBox = a.Length > 0 ? NullIfEmpty(a[0]) : null,
-                        Extended = a.Length > 1 ? NullIfEmpty(a[1]) : null,
-                        Street = a.Length > 2 ? NullIfEmpty(a[2]) : null,
-                        Locality = a.Length > 3 ? NullIfEmpty(a[3]) : null,
-                        Region = a.Length > 4 ? NullIfEmpty(a[4]) : null,
-                        PostalCode = a.Length > 5 ? NullIfEmpty(a[5]) : null,
-                        Country = a.Length > 6 ? NullIfEmpty(a[6]) : null,
+                        PoBox = a.Length > 0 ? NullIfEmpty(UnescapeText(a[0])) : null,
+                        Extended = a.Length > 1 ? NullIfEmpty(UnescapeText(a[1])) : null,
+                        Street = a.Length > 2 ? NullIfEmpty(UnescapeText(a[2])) : null,
+                        Locality = a.Length > 3 ? NullIfEmpty(UnescapeText(a[3])) : null,
+                        Region = a.Length > 4 ? NullIfEmpty(UnescapeText(a[4])) : null,
+                        PostalCode = a.Length > 5 ? NullIfEmpty(UnescapeText(a[5])) : null,
+                        Country = a.Length > 6 ? NullIfEmpty(UnescapeText(a[6])) : null,
                         Kind = ParseAddressKind(prop),
                     });
                     break;
                 }
 
                 case "URL":
-                    if (!string.IsNullOrWhiteSpace(prop.Value)) contact.Urls.Add(prop.Value);
+                    if (!string.IsNullOrWhiteSpace(prop.Value)) contact.Urls.Add(UnescapeText(prop.Value));
                     break;
 
                 case "CATEGORIES":
                     foreach (var c in prop.Value.Split(','))
-                        if (!string.IsNullOrWhiteSpace(c)) contact.Categories.Add(c.Trim());
+                        if (!string.IsNullOrWhiteSpace(c)) contact.Categories.Add(UnescapeText(c.Trim()));
                     break;
 
                 case "PHOTO":
@@ -296,9 +296,8 @@ public sealed class VCardImporter : IContactImporter
             // Leave as raw base64 — caller handles binary props.
         }
 
-        // Apply value-text escaping for 3.0/4.0
-        if (version != "2.1" && encoding is null)
-            value = UnescapeText(value);
+        // Note: leave value escaped so structured fields (N, ORG, ADR) split correctly.
+        // Per-field handlers call UnescapeText on leaf strings.
 
         return new VProp
         {

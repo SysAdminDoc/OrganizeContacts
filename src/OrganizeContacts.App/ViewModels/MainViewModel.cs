@@ -1,21 +1,35 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
+using OrganizeContacts.App.Views;
+using OrganizeContacts.Core;
 using OrganizeContacts.Core.Dedup;
 using OrganizeContacts.Core.Importers;
+using OrganizeContacts.Core.Merge;
 using OrganizeContacts.Core.Models;
+using OrganizeContacts.Core.Normalize;
 using OrganizeContacts.Core.Storage;
 
 namespace OrganizeContacts.App.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
+    private readonly string _dataDir;
+    private readonly string _settingsPath;
+
     private readonly VCardImporter _vcard = new();
-    private readonly DedupEngine _dedup = new();
+    private readonly VCardWriter _vcardWriter = new();
     private readonly ContactRepository _repo;
     private readonly HistoryStore _history;
+    private readonly RollbackService _rollback;
+    private readonly MergeEngine _mergeEngine = new();
+    private readonly EmailCanonicalizer _emailCanon = new();
+    private readonly AppSettings _settings;
+    private readonly PhoneNormalizer _phoneNormalizer;
+    private readonly DedupEngine _dedup;
 
     public ObservableCollection<Contact> Contacts { get; } = new();
     public ObservableCollection<DuplicateGroup> Duplicates { get; } = new();
@@ -32,18 +46,37 @@ public partial class MainViewModel : ObservableObject
 
     public MainViewModel()
     {
-        var localData = Path.Combine(
+        _dataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "OrganizeContacts");
-        _repo = new ContactRepository(Path.Combine(localData, "contacts.sqlite"));
+        _settingsPath = Path.Combine(_dataDir, "settings.json");
+        _settings = AppSettings.LoadOrDefault(_settingsPath);
+
+        _repo = new ContactRepository(Path.Combine(_dataDir, "contacts.sqlite"));
         _history = new HistoryStore(_repo);
+        _rollback = new RollbackService(_repo);
+        _phoneNormalizer = new PhoneNormalizer(_settings.DefaultRegion);
+        _emailCanon = new EmailCanonicalizer
+        {
+            MergeGoogleMailDomain = _settings.MergeGoogleMailDomain,
+            StripGmailDots = _settings.StripGmailDots,
+            StripPlusTag = _settings.StripPlusTag,
+        };
+        _dedup = new DedupEngine(GetMatchRules(), _emailCanon);
+
         _history.Audit("session.start");
 
-        // Hydrate from persistent store
         foreach (var s in _repo.ListSources()) Sources.Add(s);
         foreach (var c in _repo.ListContacts()) Contacts.Add(c);
         if (Contacts.Count > 0) RescanDuplicates();
     }
+
+    private MatchRules GetMatchRules() => _settings.MatchProfile switch
+    {
+        "Strict" => MatchRules.Strict,
+        "Loose" => MatchRules.Loose,
+        _ => MatchRules.Default,
+    };
 
     [RelayCommand]
     private async Task ImportVCardAsync()
@@ -57,7 +90,7 @@ public partial class MainViewModel : ObservableObject
         if (dlg.ShowDialog() != true) return;
 
         var fileName = dlg.FileName;
-        StatusMessage = $"Importing {Path.GetFileName(fileName)}…";
+        StatusMessage = $"Generating preview for {Path.GetFileName(fileName)}…";
 
         var source = _repo.UpsertSource(new ContactSource
         {
@@ -65,7 +98,17 @@ public partial class MainViewModel : ObservableObject
             Label = Path.GetFileNameWithoutExtension(fileName),
             FilePath = fileName,
         });
-        Sources.Add(source);
+        if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
+
+        var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
+        var report = await previewer.PreviewAsync(_vcard, fileName, source.Id);
+
+        var dialog = new ImportPreviewDialog(fileName, report) { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true)
+        {
+            StatusMessage = $"Import cancelled. {report.Summary}";
+            return;
+        }
 
         var import = _repo.StartImport(new ImportRecord
         {
@@ -74,66 +117,46 @@ public partial class MainViewModel : ObservableObject
             Status = ImportStatus.Pending,
         });
 
+        // Capture a rollback snapshot of every contact about to be touched.
+        if (dialog.CaptureSnapshot)
+        {
+            var touched = report.Items
+                .Where(i => i.Existing is not null)
+                .Select(i => i.Existing!)
+                .ToList();
+            if (touched.Count > 0)
+                _rollback.CaptureForImport(import.Id, touched, $"before {Path.GetFileName(fileName)}");
+        }
+
         var added = 0;
         var updated = 0;
         var skipped = 0;
 
         using var tx = _repo.BeginTransaction();
-        await foreach (var contact in _vcard.ReadAsync(fileName))
+        foreach (var item in report.Items)
         {
-            contact.SourceId = source.Id;
-            contact.ImportId = import.Id;
+            var c = item.Incoming;
+            c.SourceId = source.Id;
+            c.ImportId = import.Id;
+            StampSourceOnChildren(c, source.Id);
 
-            // Stamp provenance on every child element
-            for (int i = 0; i < contact.Phones.Count; i++)
+            switch (item.Action)
             {
-                var p = contact.Phones[i];
-                if (p.SourceId is null)
-                    contact.Phones[i] = new PhoneNumber
-                    {
-                        Raw = p.Raw,
-                        Digits = p.Digits,
-                        E164 = p.E164,
-                        Kind = p.Kind,
-                        IsPreferred = p.IsPreferred,
-                        SourceId = source.Id,
-                    };
-            }
-            for (int i = 0; i < contact.Emails.Count; i++)
-            {
-                var e = contact.Emails[i];
-                if (e.SourceId is null)
-                    contact.Emails[i] = new EmailAddress
-                    {
-                        Address = e.Address,
-                        CanonicalOverride = e.CanonicalOverride,
-                        Kind = e.Kind,
-                        IsPreferred = e.IsPreferred,
-                        SourceId = source.Id,
-                    };
-            }
-
-            Contact? existing = null;
-            if (!string.IsNullOrWhiteSpace(contact.Uid))
-                existing = _repo.FindByUid(contact.Uid!, source.Id);
-
-            if (existing is null)
-            {
-                _repo.InsertContact(contact, tx);
-                Contacts.Add(contact);
-                added++;
-            }
-            else if (RevIsNewer(contact.Rev, existing.Rev))
-            {
-                contact.Id = existing.Id;
-                _repo.UpdateContact(contact, tx);
-                var idx = IndexOfContact(existing.Id);
-                if (idx >= 0) Contacts[idx] = contact;
-                updated++;
-            }
-            else
-            {
-                skipped++;
+                case ImportAction.New:
+                    _repo.InsertContact(c, tx);
+                    Contacts.Add(c);
+                    added++;
+                    break;
+                case ImportAction.UpdateNewer:
+                    if (item.Existing is not null) c.Id = item.Existing.Id;
+                    _repo.UpdateContact(c, tx);
+                    var idx = IndexOfContact(c.Id);
+                    if (idx >= 0) Contacts[idx] = c;
+                    updated++;
+                    break;
+                default:
+                    skipped++;
+                    break;
             }
         }
         tx.Commit();
@@ -148,22 +171,146 @@ public partial class MainViewModel : ObservableObject
 
         RescanDuplicates();
         StatusMessage =
-            $"Imported {Path.GetFileName(fileName)}: " +
-            $"+{added} new, ~{updated} updated, {skipped} skipped (UID match). " +
+            $"{Path.GetFileName(fileName)}: +{added} new, ~{updated} updated, {skipped} skipped. " +
             $"Total: {Contacts.Count}. Duplicate groups: {Duplicates.Count}.";
+    }
+
+    [RelayCommand]
+    private async Task ExportVCardAsync()
+    {
+        if (Contacts.Count == 0)
+        {
+            StatusMessage = "Nothing to export.";
+            return;
+        }
+        var dlg = new SaveFileDialog
+        {
+            Title = "Export to vCard",
+            Filter = "vCard 3.0 (*.vcf)|*.vcf",
+            FileName = "OrganizeContacts.vcf",
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        await _vcardWriter.WriteFileAsync(dlg.FileName, Contacts);
+        _history.Audit("export.vcard", payload: $"file={dlg.FileName};count={Contacts.Count}");
+        StatusMessage = $"Exported {Contacts.Count} contact(s) to {Path.GetFileName(dlg.FileName)}.";
+    }
+
+    [RelayCommand]
+    private void OpenSettings()
+    {
+        var dlg = new SettingsDialog(_settings) { Owner = Application.Current.MainWindow };
+        if (dlg.ShowDialog() == true)
+        {
+            _settings.Save(_settingsPath);
+            _history.Audit("settings.save");
+            StatusMessage = "Settings saved.  Re-import or rescan to apply.";
+        }
+    }
+
+    [RelayCommand]
+    private void OpenRestoreHistory()
+    {
+        var dlg = new RestoreHistoryDialog(_repo, _rollback) { Owner = Application.Current.MainWindow };
+        var changed = dlg.ShowDialog() == true;
+        if (changed)
+        {
+            ReloadFromStore();
+            StatusMessage = "Restore complete.";
+        }
+    }
+
+    [RelayCommand]
+    private void ReviewMerge()
+    {
+        if (SelectedDuplicateGroup is null) return;
+        if (SelectedDuplicateGroup.Members.Count < 2) return;
+
+        var dlg = new MergeReviewDialog(SelectedDuplicateGroup) { Owner = Application.Current.MainWindow };
+        if (dlg.ShowDialog() != true || dlg.Result is null) return;
+
+        var result = _mergeEngine.Apply(dlg.Result);
+
+        using var tx = _repo.BeginTransaction();
+        _repo.UpdateContact(result.Survivor, tx);
+        if (dlg.Result.DeleteSecondaries)
+            foreach (var sec in result.RemovedSecondaries)
+                _repo.SoftDeleteContact(sec.Id, tx);
+        tx.Commit();
+
+        _history.RecordUndo(
+            "merge",
+            new { primary = result.Survivor.Id, removed = result.RemovedSecondaries.Select(c => c.Id) },
+            new { restored = result.RemovedSecondaries.Select(c => c.Id) },
+            $"merge {result.Survivor.DisplayName}");
+
+        ReloadFromStore();
+        StatusMessage = $"Merged into '{result.Survivor.DisplayName}'.";
+    }
+
+    [RelayCommand]
+    private void UndoLast()
+    {
+        var entry = _history.GetMostRecentApplied();
+        if (entry is null)
+        {
+            StatusMessage = "Nothing to undo.";
+            return;
+        }
+        if (_settings.ConfirmDestructiveActions)
+        {
+            var ok = MessageBox.Show(Application.Current.MainWindow,
+                $"Undo {entry.Op}: {entry.Label}?",
+                "Undo",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question);
+            if (ok != MessageBoxResult.OK) return;
+        }
+
+        // For merge: re-insert removed contacts via reading the inverse JSON.
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(entry.InverseJson);
+            if (entry.Op == "merge" && doc.RootElement.TryGetProperty("restored", out var restored))
+            {
+                using var tx = _repo.BeginTransaction();
+                foreach (var idEl in restored.EnumerateArray())
+                {
+                    var id = Guid.Parse(idEl.GetString()!);
+                    _repo.RestoreContact(id, tx);
+                }
+                tx.Commit();
+            }
+            _history.MarkUndone(entry.Id);
+            ReloadFromStore();
+            StatusMessage = $"Undone: {entry.Label ?? entry.Op}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Undo failed: {ex.Message}";
+        }
     }
 
     [RelayCommand]
     private void ClearAll()
     {
-        // Soft-delete all visible contacts via journaled command.
         if (Contacts.Count == 0) return;
+        if (_settings.ConfirmDestructiveActions)
+        {
+            var ok = MessageBox.Show(Application.Current.MainWindow,
+                $"Soft-delete all {Contacts.Count} contact(s)? You can restore them via Restore History.",
+                "Clear",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning);
+            if (ok != MessageBoxResult.OK) return;
+        }
+
         using var tx = _repo.BeginTransaction();
         foreach (var c in Contacts) _repo.SoftDeleteContact(c.Id, tx);
         tx.Commit();
         Contacts.Clear();
         Duplicates.Clear();
-        StatusMessage = "Cleared (soft-delete). Use Restore History to roll back.";
+        StatusMessage = "Cleared (soft-delete).  Use Restore History to roll back.";
         _history.Audit("contacts.clear");
     }
 
@@ -174,6 +321,15 @@ public partial class MainViewModel : ObservableObject
         foreach (var g in _dedup.Find(Contacts)) Duplicates.Add(g);
     }
 
+    private void ReloadFromStore()
+    {
+        Contacts.Clear();
+        foreach (var c in _repo.ListContacts()) Contacts.Add(c);
+        Sources.Clear();
+        foreach (var s in _repo.ListSources()) Sources.Add(s);
+        RescanDuplicates();
+    }
+
     private int IndexOfContact(Guid id)
     {
         for (int i = 0; i < Contacts.Count; i++)
@@ -181,10 +337,34 @@ public partial class MainViewModel : ObservableObject
         return -1;
     }
 
-    private static bool RevIsNewer(string? incoming, string? existing)
+    private static void StampSourceOnChildren(Contact c, Guid sourceId)
     {
-        if (string.IsNullOrWhiteSpace(incoming)) return false;
-        if (string.IsNullOrWhiteSpace(existing)) return true;
-        return string.CompareOrdinal(incoming, existing) > 0;
+        for (int i = 0; i < c.Phones.Count; i++)
+        {
+            var p = c.Phones[i];
+            if (p.SourceId is null)
+                c.Phones[i] = new PhoneNumber
+                {
+                    Raw = p.Raw,
+                    Digits = p.Digits,
+                    E164 = p.E164,
+                    Kind = p.Kind,
+                    IsPreferred = p.IsPreferred,
+                    SourceId = sourceId,
+                };
+        }
+        for (int i = 0; i < c.Emails.Count; i++)
+        {
+            var e = c.Emails[i];
+            if (e.SourceId is null)
+                c.Emails[i] = new EmailAddress
+                {
+                    Address = e.Address,
+                    CanonicalOverride = e.CanonicalOverride,
+                    Kind = e.Kind,
+                    IsPreferred = e.IsPreferred,
+                    SourceId = sourceId,
+                };
+        }
     }
 }

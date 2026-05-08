@@ -4,13 +4,21 @@
         xmlns:vm="clr-namespace:OrganizeContacts.App.ViewModels"
         xmlns:m="clr-namespace:OrganizeContacts.Core.Models;assembly=OrganizeContacts.Core"
         Title="OrganizeContacts"
-        Height="720" Width="1180"
-        MinHeight="520" MinWidth="900"
+        Height="760" Width="1240"
+        MinHeight="560" MinWidth="980"
         WindowStartupLocation="CenterScreen">
 
     <Window.DataContext>
         <vm:MainViewModel />
     </Window.DataContext>
+
+    <Window.InputBindings>
+        <KeyBinding Key="O" Modifiers="Control" Command="{Binding ImportVCardCommand}" />
+        <KeyBinding Key="E" Modifiers="Control" Command="{Binding ExportVCardCommand}" />
+        <KeyBinding Key="R" Modifiers="Control" Command="{Binding RescanDuplicatesCommand}" />
+        <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoLastCommand}" />
+        <KeyBinding Key="OemComma" Modifiers="Control" Command="{Binding OpenSettingsCommand}" />
+    </Window.InputBindings>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -32,7 +40,7 @@
                     <TextBlock Text="OrganizeContacts"
                                FontSize="18" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" />
-                    <TextBlock Text="v0.1.0"
+                    <TextBlock Text="v0.2.0"
                                Margin="10,3,0,0"
                                FontSize="11"
                                Foreground="{StaticResource Subtext0Brush}" />
@@ -41,17 +49,42 @@
                     <Button Content="Import vCard…"
                             Style="{StaticResource AccentButton}"
                             Command="{Binding ImportVCardCommand}"
-                            Margin="0,0,10,0" />
+                            ToolTip="Ctrl+O · Read a .vcf file with preview"
+                            AutomationProperties.Name="Import vCard file"
+                            Margin="0,0,8,0" />
+                    <Button Content="Export…"
+                            Command="{Binding ExportVCardCommand}"
+                            ToolTip="Ctrl+E · Write the current contacts to a .vcf file"
+                            AutomationProperties.Name="Export contacts to vCard"
+                            Margin="0,0,8,0" />
                     <Button Content="Rescan"
                             Command="{Binding RescanDuplicatesCommand}"
-                            Margin="0,0,10,0" />
+                            ToolTip="Ctrl+R · Re-run the duplicate scan"
+                            AutomationProperties.Name="Rescan duplicates"
+                            Margin="0,0,8,0" />
+                    <Button Content="Undo"
+                            Command="{Binding UndoLastCommand}"
+                            ToolTip="Ctrl+Z · Undo the most recent merge"
+                            AutomationProperties.Name="Undo last merge"
+                            Margin="0,0,8,0" />
+                    <Button Content="History…"
+                            Command="{Binding OpenRestoreHistoryCommand}"
+                            ToolTip="Imports + rollback snapshots"
+                            AutomationProperties.Name="Open restore history"
+                            Margin="0,0,8,0" />
+                    <Button Content="Settings…"
+                            Command="{Binding OpenSettingsCommand}"
+                            ToolTip="Ctrl+, · Region, match profile, canonicalization"
+                            AutomationProperties.Name="Open settings"
+                            Margin="0,0,8,0" />
                     <Button Content="Clear"
-                            Command="{Binding ClearAllCommand}" />
+                            Command="{Binding ClearAllCommand}"
+                            AutomationProperties.Name="Soft-delete all visible contacts" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Body: contacts list (left) + duplicates (right) -->
+        <!-- Body -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" />
@@ -63,22 +96,31 @@
             <Border Grid.Column="0" Padding="14">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top"
-                               Text="Contacts"
                                FontSize="14" FontWeight="SemiBold"
-                               Margin="0,0,0,8" />
+                               Margin="0,0,0,8">
+                        <Run Text="Contacts: " />
+                        <Run Text="{Binding Contacts.Count, Mode=OneWay}"
+                             Foreground="{StaticResource AccentAltBrush}" />
+                    </TextBlock>
                     <Border Background="{StaticResource MantleBrush}"
                             BorderBrush="{StaticResource Surface0Brush}" BorderThickness="1"
                             CornerRadius="6">
                         <ListBox ItemsSource="{Binding Contacts}"
                                  SelectedItem="{Binding SelectedContact}"
-                                 Background="Transparent" BorderThickness="0">
+                                 Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 AutomationProperties.Name="Contacts list">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="{x:Type m:Contact}">
                                     <StackPanel>
                                         <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding Organization}"
-                                                   Foreground="{StaticResource Subtext0Brush}"
-                                                   FontSize="11" />
+                                        <TextBlock Foreground="{StaticResource Subtext0Brush}"
+                                                   FontSize="11">
+                                            <Run Text="{Binding Organization}" />
+                                            <Run Text="  ·  " />
+                                            <Run Text="{Binding SourceFormat}" />
+                                        </TextBlock>
                                     </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -94,20 +136,27 @@
             <!-- Duplicates -->
             <Border Grid.Column="2" Padding="14">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top"
-                               FontSize="14" FontWeight="SemiBold"
-                               Margin="0,0,0,8">
-                        <Run Text="Duplicate groups: " />
-                        <Run Text="{Binding Duplicates.Count, Mode=OneWay}"
-                             Foreground="{StaticResource AccentBrush}" />
-                    </TextBlock>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock DockPanel.Dock="Left"
+                                   FontSize="14" FontWeight="SemiBold">
+                            <Run Text="Duplicate groups: " />
+                            <Run Text="{Binding Duplicates.Count, Mode=OneWay}"
+                                 Foreground="{StaticResource AccentBrush}" />
+                        </TextBlock>
+                        <Button DockPanel.Dock="Right"
+                                Content="Review &amp; merge…"
+                                Command="{Binding ReviewMergeCommand}"
+                                Style="{StaticResource AccentButton}"
+                                AutomationProperties.Name="Open merge review for selected group" />
+                    </DockPanel>
                     <Border Background="{StaticResource MantleBrush}"
                             BorderBrush="{StaticResource Surface0Brush}" BorderThickness="1"
                             CornerRadius="6">
                         <ListBox ItemsSource="{Binding Duplicates}"
                                  SelectedItem="{Binding SelectedDuplicateGroup}"
                                  Background="Transparent" BorderThickness="0"
-                                 HorizontalContentAlignment="Stretch">
+                                 HorizontalContentAlignment="Stretch"
+                                 AutomationProperties.Name="Duplicate groups">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="{x:Type m:DuplicateGroup}">
                                     <StackPanel>
@@ -117,6 +166,9 @@
                                                        FontSize="11">
                                                 <Run Text="× " />
                                                 <Run Text="{Binding Count, Mode=OneWay}" />
+                                                <Run Text="  ·  " />
+                                                <Run Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}"
+                                                     Foreground="{StaticResource AccentAltBrush}" />
                                             </TextBlock>
                                             <TextBlock Text="{Binding MatchReason}"
                                                        Foreground="{StaticResource AccentAltBrush}"
@@ -132,7 +184,23 @@
                                                         <Run Text="{Binding DisplayName}" />
                                                         <Run Text="  " />
                                                         <Run Text="{Binding Organization}"
-                                                             Foreground="{StaticResource Overlay0}" />
+                                                             Foreground="{StaticResource Overlay0Brush}" />
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <ItemsControl ItemsSource="{Binding Signals}" Margin="8,4,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock FontSize="11"
+                                                               Foreground="{StaticResource Overlay0Brush}">
+                                                        <Run Text="↳ " />
+                                                        <Run Text="{Binding Label}"
+                                                             Foreground="{StaticResource SuccessBrush}" />
+                                                        <Run Text=" (+" />
+                                                        <Run Text="{Binding Weight, StringFormat={}{0:0.00}}" />
+                                                        <Run Text=") " />
+                                                        <Run Text="{Binding Detail}" />
                                                     </TextBlock>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -152,7 +220,9 @@
                 Padding="14,6">
             <TextBlock Text="{Binding StatusMessage}"
                        Foreground="{StaticResource Subtext0Brush}"
-                       FontSize="12" />
+                       FontSize="12"
+                       AutomationProperties.LiveSetting="Polite"
+                       AutomationProperties.Name="Status message" />
         </Border>
     </Grid>
 </Window>

@@ -38,6 +38,14 @@ Trustworthy local data and vCard. Persisting import results and source attributi
 - Added `ImportPreviewer` for dry-run reports (New / UpdateNewer / SkipUnchanged / SkipOlder / Conflict counts).
 - Added `RollbackService` for capturing pre-import snapshots and restoring them.
 - Added `AppSettings` (region, match profile, canonicalization toggles, destructive-action confirmations).
+- Added `MergeEngine` and `MergePlan` types: scalar field cherry-pick + list-union for phones/emails/addresses/urls/categories/X-* with forward+inverse JSON for the undo journal.
+- Added WPF dialogs: `ImportPreviewDialog` (DataGrid of preview items + commit/cancel + snapshot toggle), `SettingsDialog`, `MergeReviewDialog` (side-by-side radio-button cherry-pick), `RestoreHistoryDialog` (imports + snapshots, restore button).
+- `MainViewModel` rewired around the new flow: preview-before-commit, snapshot-before-touch, journaled merges, soft-delete clear, undo of last merge.
+- `MainWindow` adds Export, Undo, History, Settings, Review&Merge buttons; keyboard shortcuts (Ctrl+O/E/R/Z and Ctrl+,); `AutomationProperties.Name` on every control; live status-bar polite-region for screen readers.
+- Added `OrganizeContacts.Tests` (xunit) project with 41 tests covering: vCard 2.1/3.0/4.0 parsing, quoted-printable + UTF-8, X-* preservation, line unfolding, grouped properties, text-escape decoding, vCard writer round-trip + line folding, email canonicalization across providers, name normalization + Metaphone, Levenshtein, libphonenumber wiring, dedup engine signals + threshold profiles + organization-only guardrail, and SQLite repository round-trip + soft delete + UID lookup.
+- Tuned `MatchRules.Default.ReviewThreshold` to 0.40 so single strong signals (exact name, phone E.164, email canonical) qualify for review; Strict/Loose profiles unchanged in spirit.
+- Phone normalizer now accepts `IsPossibleNumber` so fictional/test 555 numbers are preserved.
+- Bug fix: vCard parser no longer eagerly unescapes `\;` before `SplitStructured`, which had been corrupting `ORG`, `N`, and `ADR` fields containing semicolons. UnescapeText now runs on each leaf value after splitting.
 
 ## v0.1.0 — 2026-05-07
 

@@ -27,6 +27,6 @@
   <text x="408" y="174" fill="#CDD6F4" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="66" font-weight="700">Organize</text>
   <text x="710" y="174" fill="#CBA6F7" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="66" font-weight="700">Contacts</text>
   <rect x="410" y="210" width="560" height="2" rx="1" fill="#313244"/>
-  <text x="408" y="258" fill="#BAC2DE" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="24" font-weight="500">Local-first contact cleanup, dedupe, and rollback</text>
-  <text x="408" y="300" fill="#A6ADC8" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18">Offline by default  •  transparent merge decisions  •  recoverable imports</text>
+  <text x="408" y="258" fill="#BAC2DE" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="24" font-weight="500">Contact import, cleanup, dedupe, and export</text>
+  <text x="408" y="300" fill="#A6ADC8" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18">vCard  •  CSV  •  LDIF  •  jCard  •  CardDAV  •  restore history</text>
 </svg>

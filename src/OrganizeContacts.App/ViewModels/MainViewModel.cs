@@ -120,9 +120,50 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ReviewMergeCommand))]
     private bool _isDuplicateScanRunning;
 
+    [ObservableProperty]
+    private bool _isProgressVisible;
+
+    [ObservableProperty]
+    private bool _isProgressIndeterminate;
+
+    [ObservableProperty]
+    private double _progressValue;
+
+    [ObservableProperty]
+    private string _progressLabel = string.Empty;
+
+    private string? _progressOwner;
+
     private bool NotBusy() => !IsBusy;
     private bool CanStartDuplicateScan() => !IsBusy && !IsDuplicateScanRunning;
     private bool CanUseDuplicateResults() => !IsBusy && !IsDuplicateScanRunning;
+
+    private void BeginProgress(string label, bool indeterminate, double value = 0, string? owner = null)
+    {
+        _progressOwner = owner;
+        ProgressLabel = label;
+        ProgressValue = Math.Clamp(value, 0, 100);
+        IsProgressIndeterminate = indeterminate;
+        IsProgressVisible = true;
+    }
+
+    private void ReportProgress(string label, double value)
+    {
+        ProgressLabel = label;
+        ProgressValue = Math.Clamp(value, 0, 100);
+        IsProgressIndeterminate = false;
+        IsProgressVisible = true;
+    }
+
+    private void EndProgress(string? owner = null)
+    {
+        if (owner is not null && _progressOwner != owner) return;
+        _progressOwner = null;
+        IsProgressVisible = false;
+        IsProgressIndeterminate = false;
+        ProgressValue = 0;
+        ProgressLabel = string.Empty;
+    }
 
     public MainViewModel()
     {
@@ -271,13 +312,19 @@ public partial class MainViewModel : ObservableObject
 
         StatusMessage = $"Generating preview for {detected.Count} file(s) in {Path.GetFileName(folder)}...";
         IsBusy = true;
+        BeginProgress($"Previewing 0/{detected.Count} files", indeterminate: false, owner: "import-folder");
         var batches = new List<PendingImportBatch>();
         var aggregate = new ImportPreviewReport();
         var previewFailures = new List<string>();
         try
         {
+            var completed = 0;
             foreach (var file in detected)
             {
+                ReportProgress(
+                    $"Previewing {completed + 1}/{detected.Count}: {Path.GetFileName(file.FilePath)}",
+                    completed * 100.0 / detected.Count);
+                await System.Threading.Tasks.Task.Yield();
                 try
                 {
                     var (source, report) = await PreviewImportFileAsync(
@@ -293,10 +340,15 @@ public partial class MainViewModel : ObservableObject
                 {
                     previewFailures.Add($"{Path.GetFileName(file.FilePath)}: {ex.Message}");
                 }
+                completed++;
+                ReportProgress(
+                    $"Previewed {completed}/{detected.Count} files",
+                    completed * 100.0 / detected.Count);
             }
         }
         finally
         {
+            EndProgress("import-folder");
             IsBusy = false;
         }
 
@@ -319,20 +371,23 @@ public partial class MainViewModel : ObservableObject
         }
 
         IsBusy = true;
+        BeginProgress($"Importing 0/{batches.Count} files", indeterminate: false, owner: "import-folder");
         var totals = new ImportCommitTotals();
         var commitFailures = new List<string>();
         try
         {
+            var completed = 0;
             foreach (var batch in batches)
             {
                 try
                 {
-                    var result = CommitImportReport(
+                    var result = await CommitImportReportAsync(
                         batch.Source,
                         batch.FilePath,
                         batch.Report,
                         dialog.CaptureSnapshot,
-                        "import.folder");
+                        "import.folder",
+                        $"Importing {completed + 1}/{batches.Count}: {Path.GetFileName(batch.FilePath)}");
                     totals.Add(result);
                     totals.FilesCommitted++;
                 }
@@ -340,10 +395,16 @@ public partial class MainViewModel : ObservableObject
                 {
                     commitFailures.Add($"{Path.GetFileName(batch.FilePath)}: {ex.Message}");
                 }
+                completed++;
+                ReportProgress(
+                    $"Imported {completed}/{batches.Count} files",
+                    completed * 100.0 / batches.Count);
+                await System.Threading.Tasks.Task.Yield();
             }
         }
         finally
         {
+            EndProgress("import-folder");
             IsBusy = false;
         }
 
@@ -394,6 +455,8 @@ public partial class MainViewModel : ObservableObject
 
         ContactSource source;
         ImportPreviewReport report;
+        IsBusy = true;
+        BeginProgress($"Previewing CardDAV {dlg.SelectedBook.DisplayName}", indeterminate: true, owner: "carddav");
         try
         {
             source = _repo.UpsertSource(new ContactSource
@@ -416,6 +479,11 @@ public partial class MainViewModel : ObservableObject
                 "CardDAV", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
+        finally
+        {
+            EndProgress("carddav");
+            IsBusy = false;
+        }
 
         var preview = new ImportPreviewDialog(dlg.SelectedBook.DisplayName, report) { Owner = Application.Current.MainWindow };
         if (preview.ShowDialog() != true)
@@ -424,79 +492,36 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        InvalidateDuplicateScan();
-        var import = _repo.StartImport(new ImportRecord
-        {
-            SourceId = source.Id,
-            FilePath = dlg.SelectedBook.Url,
-            Status = ImportStatus.Pending,
-        });
-        if (preview.CaptureSnapshot)
-        {
-            var touched = report.Items.Where(i => i.Existing is not null).Select(i => i.Existing!).ToList();
-            if (touched.Count > 0) _rollback.CaptureForImport(import.Id, touched, $"before CardDAV {dlg.SelectedBook.DisplayName}");
-        }
-
-        var added = 0; var updated = 0; var skipped = 0;
-        var pendingNew = new List<Contact>();
-        var pendingUpdates = new List<Contact>();
+        IsBusy = true;
+        BeginProgress($"Importing CardDAV {dlg.SelectedBook.DisplayName}", indeterminate: false, owner: "carddav");
+        ImportCommitResult result;
         try
         {
-            using var tx = _repo.BeginTransaction();
-            foreach (var item in report.Items)
-            {
-                var c = item.Incoming;
-                c.SourceId = source.Id;
-                c.ImportId = import.Id;
-                StampSourceOnChildren(c, source.Id);
-                switch (item.Action)
-                {
-                    case ImportAction.New:
-                        _repo.InsertContact(c, tx); pendingNew.Add(c); added++;
-                        break;
-                    case ImportAction.UpdateNewer:
-                        if (item.Existing is not null) c.Id = item.Existing.Id;
-                        _repo.UpdateContact(c, tx);
-                        pendingUpdates.Add(c);
-                        updated++;
-                        break;
-                    default:
-                        skipped++; break;
-                }
-            }
-            tx.Commit();
+            result = await CommitImportReportAsync(
+                source,
+                dlg.SelectedBook.Url,
+                report,
+                preview.CaptureSnapshot,
+                "import.carddav",
+                $"Importing CardDAV {dlg.SelectedBook.DisplayName}");
         }
         catch (Exception ex)
         {
-            import.FinishedAt = DateTimeOffset.UtcNow;
-            import.Status = ImportStatus.Failed;
-            import.Notes = ex.Message;
-            try { _repo.FinishImport(import); } catch { }
             StatusMessage = $"CardDAV import failed mid-commit: {ex.Message}";
             MessageBox.Show(Application.Current.MainWindow,
                 $"The CardDAV import was rolled back.\n\n{ex.Message}",
                 "CardDAV", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
-
-        foreach (var c in pendingNew) Contacts.Add(c);
-        foreach (var c in pendingUpdates)
+        finally
         {
-            var idx = IndexOfContact(c.Id);
-            if (idx >= 0) Contacts[idx] = c;
+            EndProgress("carddav");
+            IsBusy = false;
         }
-
-        import.FinishedAt = DateTimeOffset.UtcNow;
-        import.Status = ImportStatus.Committed;
-        import.ContactsCreated = added;
-        import.ContactsUpdated = updated;
-        import.ContactsSkipped = skipped;
-        _repo.FinishImport(import);
-        _history.Audit("import.carddav", payload: $"book={dlg.SelectedBook.Url};added={added};updated={updated};skipped={skipped}");
 
         var autoScanRan = RescanDuplicatesCore(userInitiated: false);
         StatusMessage =
-            $"CardDAV {dlg.SelectedBook.DisplayName}: +{added} new, ~{updated} updated, {skipped} skipped. " +
+            $"CardDAV {dlg.SelectedBook.DisplayName}: +{result.Added} new, ~{result.Updated} updated, {result.Skipped} skipped. " +
             $"Total: {Contacts.Count}." +
             (autoScanRan ? "" : " Duplicate scan skipped for this large library; use Rescan when ready.");
     }
@@ -522,6 +547,7 @@ public partial class MainViewModel : ObservableObject
         ImportPreviewReport report;
         ContactSource source;
         IsBusy = true;
+        BeginProgress($"Previewing {Path.GetFileName(fileName)}", indeterminate: true, owner: "import-file");
         try
         {
             (source, report) = await PreviewImportFileAsync(fileName, importer, kind);
@@ -536,6 +562,7 @@ public partial class MainViewModel : ObservableObject
         }
         finally
         {
+            EndProgress("import-file");
             IsBusy = false;
         }
 
@@ -553,72 +580,20 @@ public partial class MainViewModel : ObservableObject
         }
 
         IsBusy = true;
-        InvalidateDuplicateScan();
-        var import = _repo.StartImport(new ImportRecord
-        {
-            SourceId = source.Id,
-            FilePath = fileName,
-            Status = ImportStatus.Pending,
-        });
-
-        // Capture a rollback snapshot of every contact about to be touched.
-        if (dialog.CaptureSnapshot)
-        {
-            var touched = report.Items
-                .Where(i => i.Existing is not null)
-                .Select(i => i.Existing!)
-                .ToList();
-            if (touched.Count > 0)
-                _rollback.CaptureForImport(import.Id, touched, $"before {Path.GetFileName(fileName)}");
-        }
-
-        var added = 0;
-        var updated = 0;
-        var skipped = 0;
-        var pendingNew = new List<Contact>();
-        var pendingUpdates = new List<Contact>();
-
-        // Stage the changes inside a transaction — only mutate the UI ObservableCollection
-        // after the commit succeeds so a SQL failure mid-loop doesn't leave the in-memory
-        // list ahead of the database.
+        BeginProgress($"Importing {Path.GetFileName(fileName)}", indeterminate: false, owner: "import-file");
+        ImportCommitResult result;
         try
         {
-            using var tx = _repo.BeginTransaction();
-            foreach (var item in report.Items)
-            {
-                var c = item.Incoming;
-                c.SourceId = source.Id;
-                c.ImportId = import.Id;
-                StampSourceOnChildren(c, source.Id);
-
-                switch (item.Action)
-                {
-                    case ImportAction.New:
-                        _repo.InsertContact(c, tx);
-                        pendingNew.Add(c);
-                        added++;
-                        break;
-                    case ImportAction.UpdateNewer:
-                        if (item.Existing is not null) c.Id = item.Existing.Id;
-                        _repo.UpdateContact(c, tx);
-                        pendingUpdates.Add(c);
-                        updated++;
-                        break;
-                    default:
-                        skipped++;
-                        break;
-                }
-            }
-            tx.Commit();
+            result = await CommitImportReportAsync(
+                source,
+                fileName,
+                report,
+                dialog.CaptureSnapshot,
+                "import.file",
+                $"Importing {Path.GetFileName(fileName)}");
         }
         catch (Exception ex)
         {
-            // Mark the import as Failed so the history pane shows the truth, but leave
-            // the partial rollback snapshot intact for diagnostics.
-            import.FinishedAt = DateTimeOffset.UtcNow;
-            import.Status = ImportStatus.Failed;
-            import.Notes = ex.Message;
-            try { _repo.FinishImport(import); } catch { /* don't mask the root cause */ }
             StatusMessage = $"Import failed mid-commit: {ex.Message}";
             MessageBox.Show(Application.Current.MainWindow,
                 $"The import was rolled back.\n\n{ex.Message}",
@@ -627,28 +602,13 @@ public partial class MainViewModel : ObservableObject
         }
         finally
         {
+            EndProgress("import-file");
             IsBusy = false;
         }
 
-        // Commit succeeded — sync UI now.
-        foreach (var c in pendingNew) Contacts.Add(c);
-        foreach (var c in pendingUpdates)
-        {
-            var idx = IndexOfContact(c.Id);
-            if (idx >= 0) Contacts[idx] = c;
-        }
-
-        import.FinishedAt = DateTimeOffset.UtcNow;
-        import.Status = ImportStatus.Committed;
-        import.ContactsCreated = added;
-        import.ContactsUpdated = updated;
-        import.ContactsSkipped = skipped;
-        _repo.FinishImport(import);
-        _history.Audit("import.file", payload: $"file={fileName};format={importer.Name};added={added};updated={updated};skipped={skipped}");
-
         var autoScanRan = RescanDuplicatesCore(userInitiated: false);
         StatusMessage =
-            $"{Path.GetFileName(fileName)}: +{added} new, ~{updated} updated, {skipped} skipped. " +
+            $"{Path.GetFileName(fileName)}: +{result.Added} new, ~{result.Updated} updated, {result.Skipped} skipped. " +
             $"Total: {Contacts.Count}. " +
             (autoScanRan ? $"Duplicate groups: {Duplicates.Count}." : "Duplicate scan skipped for this large library; use Rescan when ready.");
     }
@@ -671,12 +631,13 @@ public partial class MainViewModel : ObservableObject
         return (source, report);
     }
 
-    private ImportCommitResult CommitImportReport(
+    private async Task<ImportCommitResult> CommitImportReportAsync(
         ContactSource source,
         string fileName,
         ImportPreviewReport report,
         bool captureSnapshot,
-        string auditOperation)
+        string auditOperation,
+        string progressLabel)
     {
         InvalidateDuplicateScan();
         var import = _repo.StartImport(new ImportRecord
@@ -693,7 +654,11 @@ public partial class MainViewModel : ObservableObject
                 .Select(i => i.Existing!)
                 .ToList();
             if (touched.Count > 0)
+            {
+                ReportProgress($"{progressLabel}: saving rollback snapshot", 2);
+                await System.Threading.Tasks.Task.Yield();
                 _rollback.CaptureForImport(import.Id, touched, $"before {Path.GetFileName(fileName)}");
+            }
         }
 
         var added = 0;
@@ -701,6 +666,8 @@ public partial class MainViewModel : ObservableObject
         var skipped = 0;
         var pendingNew = new List<Contact>();
         var pendingUpdates = new List<Contact>();
+        var processed = 0;
+        var total = Math.Max(report.Items.Count, 1);
 
         try
         {
@@ -729,6 +696,13 @@ public partial class MainViewModel : ObservableObject
                         skipped++;
                         break;
                 }
+
+                processed++;
+                if (processed % 100 == 0 || processed == total)
+                {
+                    ReportProgress($"{progressLabel} ({processed}/{total} contacts)", processed * 90.0 / total);
+                    await System.Threading.Tasks.Task.Yield();
+                }
             }
             tx.Commit();
         }
@@ -741,11 +715,29 @@ public partial class MainViewModel : ObservableObject
             throw;
         }
 
-        foreach (var c in pendingNew) Contacts.Add(c);
+        var uiProcessed = 0;
+        var uiTotal = Math.Max(pendingNew.Count + pendingUpdates.Count, 1);
+        ReportProgress($"{progressLabel}: updating list", 92);
+        foreach (var c in pendingNew)
+        {
+            Contacts.Add(c);
+            uiProcessed++;
+            if (uiProcessed % 250 == 0 || uiProcessed == uiTotal)
+            {
+                ReportProgress($"{progressLabel}: updating list", 92 + uiProcessed * 8.0 / uiTotal);
+                await System.Threading.Tasks.Task.Yield();
+            }
+        }
         foreach (var c in pendingUpdates)
         {
             var idx = IndexOfContact(c.Id);
             if (idx >= 0) Contacts[idx] = c;
+            uiProcessed++;
+            if (uiProcessed % 250 == 0 || uiProcessed == uiTotal)
+            {
+                ReportProgress($"{progressLabel}: updating list", 92 + uiProcessed * 8.0 / uiTotal);
+                await System.Threading.Tasks.Task.Yield();
+            }
         }
 
         import.FinishedAt = DateTimeOffset.UtcNow;
@@ -788,6 +780,8 @@ public partial class MainViewModel : ObservableObject
 
         // Snapshot once so a concurrent import / merge doesn't trip the writers' enumerators.
         var snapshot = Contacts.ToList();
+        IsBusy = true;
+        BeginProgress($"Exporting {snapshot.Count} contacts", indeterminate: true, owner: "export");
         try
         {
             switch (dlg.FilterIndex)
@@ -821,6 +815,11 @@ public partial class MainViewModel : ObservableObject
             MessageBox.Show(Application.Current.MainWindow,
                 $"Could not write the export:\n\n{ex.Message}",
                 "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            EndProgress("export");
+            IsBusy = false;
         }
     }
 
@@ -940,7 +939,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
-    private void ClearAll()
+    private async Task ClearAllAsync()
     {
         // Honor the visible filter — the button advertises "all visible contacts" and
         // wiping items the user can't see is a footgun (especially with the search box
@@ -958,11 +957,11 @@ public partial class MainViewModel : ObservableObject
         var msg = hidden > 0
             ? $"Soft-delete the {targets.Count} visible contact(s)?  ({hidden} hidden by filter will be kept.)  You can restore them via Restore History."
             : $"Soft-delete all {targets.Count} contact(s)?  You can restore them via Restore History.";
-        ClearTargets(targets, "Clear visible", msg, $"hidden_kept={hidden}");
+        await ClearTargetsAsync(targets, "Clear visible", msg, $"hidden_kept={hidden}");
     }
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
-    private void ClearAllContacts()
+    private async Task ClearAllContactsAsync()
     {
         var targets = Contacts.ToList();
         if (targets.Count == 0)
@@ -973,10 +972,10 @@ public partial class MainViewModel : ObservableObject
 
         var msg =
             $"Soft-delete all {targets.Count} imported contact(s), ignoring search and queue filters?  You can restore them via Restore History.";
-        ClearTargets(targets, "Clear all contacts", msg, "scope=all");
+        await ClearTargetsAsync(targets, "Clear all contacts", msg, "scope=all");
     }
 
-    private void ClearTargets(IReadOnlyList<Contact> targets, string title, string message, string auditSuffix)
+    private async Task ClearTargetsAsync(IReadOnlyList<Contact> targets, string title, string message, string auditSuffix)
     {
         if (_settings.ConfirmDestructiveActions)
         {
@@ -985,67 +984,173 @@ public partial class MainViewModel : ObservableObject
             if (ok != MessageBoxResult.OK) return;
         }
 
-        InvalidateDuplicateScan();
-        var idSet = new HashSet<Guid>(targets.Select(t => t.Id));
-        using var tx = _repo.BeginTransaction();
-        foreach (var c in targets) _repo.SoftDeleteContact(c.Id, tx);
-        tx.Commit();
-        // Mutate the source collection from the back to keep indices stable.
-        for (int i = Contacts.Count - 1; i >= 0; i--)
-            if (idSet.Contains(Contacts[i].Id)) Contacts.RemoveAt(i);
-        RescanDuplicatesCore(userInitiated: false);
-        StatusMessage = $"Cleared (soft-delete) {targets.Count} contact(s). Use Restore History to roll back.";
-        _history.Audit("contacts.clear", payload: $"count={targets.Count};{auditSuffix}");
+        IsBusy = true;
+        BeginProgress($"Clearing 0/{targets.Count} contacts", indeterminate: false, owner: "clear");
+        try
+        {
+            InvalidateDuplicateScan();
+            var idSet = new HashSet<Guid>(targets.Select(t => t.Id));
+            using (var tx = _repo.BeginTransaction())
+            {
+                for (int i = 0; i < targets.Count; i++)
+                {
+                    _repo.SoftDeleteContact(targets[i].Id, tx);
+                    var processed = i + 1;
+                    if (processed % 100 == 0 || processed == targets.Count)
+                    {
+                        ReportProgress(
+                            $"Clearing {processed}/{targets.Count} contacts",
+                            processed * 85.0 / targets.Count);
+                        await System.Threading.Tasks.Task.Yield();
+                    }
+                }
+                tx.Commit();
+            }
+
+            ReportProgress("Updating contact list", 90);
+            await System.Threading.Tasks.Task.Yield();
+
+            if (idSet.Count == Contacts.Count)
+            {
+                Contacts.Clear();
+            }
+            else
+            {
+                using var defer = ContactsView.DeferRefresh();
+                var checkedRows = 0;
+                for (int i = Contacts.Count - 1; i >= 0; i--)
+                {
+                    checkedRows++;
+                    if (idSet.Contains(Contacts[i].Id)) Contacts.RemoveAt(i);
+                    if (checkedRows % 500 == 0)
+                    {
+                        ReportProgress("Updating contact list", 90 + checkedRows * 10.0 / Math.Max(Contacts.Count + checkedRows, 1));
+                        await System.Threading.Tasks.Task.Yield();
+                    }
+                }
+            }
+
+            ReportProgress("Updating duplicate review", 100);
+            IsBusy = false;
+            EndProgress("clear");
+            RescanDuplicatesCore(userInitiated: false);
+            StatusMessage = $"Cleared (soft-delete) {targets.Count} contact(s). Use Restore History to roll back.";
+            _history.Audit("contacts.clear", payload: $"count={targets.Count};{auditSuffix}");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Clear failed: {ex.Message}";
+            MessageBox.Show(Application.Current.MainWindow,
+                $"Could not clear contacts:\n\n{ex.Message}",
+                title,
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (IsBusy) IsBusy = false;
+            EndProgress("clear");
+        }
     }
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
-    private void RunCleanup()
+    private async Task RunCleanupAsync()
     {
         if (Contacts.Count == 0) { StatusMessage = "Nothing to clean."; return; }
         var dlg = new CleanupDialog { Owner = Application.Current.MainWindow };
         if (dlg.ShowDialog() != true) return;
 
+        IsBusy = true;
+        BeginProgress("Preparing cleanup snapshot", indeterminate: false, owner: "cleanup");
         var importId = Guid.NewGuid();
-        // Snapshot every contact before mutating so cleanup is rollback-able.
-        InvalidateDuplicateScan();
-        _rollback.CaptureForImport(importId, Contacts.Select(JsonClone).ToList(), $"before cleanup");
-
-        var cleaner = new BatchCleanup(_phoneNormalizer, _emailCanon);
-        BatchCleanupReport report;
         try
         {
-            report = cleaner.Run(
-                Contacts,
-                dedupePhones: dlg.DedupePhones,
-                dedupeEmails: dlg.DedupeEmails,
-                dedupeUrls: dlg.DedupeUrls,
-                dedupeCategories: dlg.DedupeCategories,
-                normalizePhones: dlg.NormalizePhones,
-                canonicalizeEmails: dlg.CanonicalizeEmails,
-                stripPhotoMetadata: dlg.StripPhotoMetadata,
-                regexEdits: dlg.Regex is null ? null : new[] { dlg.Regex });
+            // Snapshot every contact before mutating so cleanup is rollback-able.
+            InvalidateDuplicateScan();
+            var snapshot = new List<Contact>(Contacts.Count);
+            for (int i = 0; i < Contacts.Count; i++)
+            {
+                snapshot.Add(JsonClone(Contacts[i]));
+                var processed = i + 1;
+                if (processed % 100 == 0 || processed == Contacts.Count)
+                {
+                    ReportProgress("Preparing cleanup snapshot", processed * 20.0 / Contacts.Count);
+                    await System.Threading.Tasks.Task.Yield();
+                }
+            }
+            ReportProgress("Saving cleanup snapshot", 20);
+            await System.Threading.Tasks.Task.Yield();
+            _rollback.CaptureForImport(importId, snapshot, $"before cleanup");
+
+            var cleaner = new BatchCleanup(_phoneNormalizer, _emailCanon);
+            var report = new BatchCleanupReport();
+            var regexEdits = dlg.Regex is null ? null : new[] { dlg.Regex };
+            for (int i = 0; i < Contacts.Count; i++)
+            {
+                var partial = cleaner.Run(
+                    new[] { Contacts[i] },
+                    dedupePhones: dlg.DedupePhones,
+                    dedupeEmails: dlg.DedupeEmails,
+                    dedupeUrls: dlg.DedupeUrls,
+                    dedupeCategories: dlg.DedupeCategories,
+                    normalizePhones: dlg.NormalizePhones,
+                    canonicalizeEmails: dlg.CanonicalizeEmails,
+                    stripPhotoMetadata: dlg.StripPhotoMetadata,
+                    regexEdits: regexEdits);
+                AddCleanupReport(report, partial);
+
+                var processed = i + 1;
+                if (processed % 100 == 0 || processed == Contacts.Count)
+                {
+                    ReportProgress($"Cleaning {processed}/{Contacts.Count} contacts", 20 + processed * 45.0 / Contacts.Count);
+                    await System.Threading.Tasks.Task.Yield();
+                }
+            }
+
+            // Persist only the rows that actually changed instead of UPDATE-ing every contact.
+            using var tx = _repo.BeginTransaction();
+            var persisted = 0;
+            var touchedTotal = Math.Max(report.TouchedIds.Count, 1);
+            foreach (var c in Contacts)
+            {
+                if (!report.TouchedIds.Contains(c.Id)) continue;
+                _repo.UpdateContact(c, tx);
+                persisted++;
+                if (persisted % 100 == 0 || persisted == touchedTotal)
+                {
+                    ReportProgress($"Saving cleanup {persisted}/{touchedTotal} contacts", 65 + persisted * 35.0 / touchedTotal);
+                    await System.Threading.Tasks.Task.Yield();
+                }
+            }
+            tx.Commit();
+            _history.Audit("cleanup.run", payload: report.Summary);
+            IsBusy = false;
+            EndProgress("cleanup");
+            RescanDuplicatesCore(userInitiated: false);
+            StatusMessage = report.Summary;
         }
         catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
         {
             StatusMessage = $"Cleanup aborted: regex timed out ({ex.Message}).";
-            return;
         }
-
-        // Persist only the rows that actually changed instead of UPDATE-ing every contact.
-        // For a 5,000-contact database this is the difference between a 5,000-row write
-        // and (typically) tens of writes.
-        using var tx = _repo.BeginTransaction();
-        foreach (var c in Contacts)
-            if (report.TouchedIds.Contains(c.Id))
-                _repo.UpdateContact(c, tx);
-        tx.Commit();
-        _history.Audit("cleanup.run", payload: report.Summary);
-        RescanDuplicatesCore(userInitiated: false);
-        StatusMessage = report.Summary;
+        catch (Exception ex)
+        {
+            StatusMessage = $"Cleanup failed: {ex.Message}";
+            MessageBox.Show(Application.Current.MainWindow,
+                $"Could not finish cleanup:\n\n{ex.Message}",
+                "Cleanup",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (IsBusy) IsBusy = false;
+            EndProgress("cleanup");
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanUseDuplicateResults))]
-    private void AutoMerge()
+    private async Task AutoMergeAsync()
     {
         if (Duplicates.Count == 0) { StatusMessage = "No duplicates."; return; }
         var rules = GetMatchRules();
@@ -1065,24 +1170,64 @@ public partial class MainViewModel : ObservableObject
             if (ok != MessageBoxResult.OK) return;
         }
 
+        IsBusy = true;
+        BeginProgress($"Auto-merging 0/{plan.Plans.Count} groups", indeterminate: false, owner: "auto-merge");
         InvalidateDuplicateScan();
-        var merged = 0;
-        foreach (var p in plan.Plans)
+        try
         {
-            var result = _mergeEngine.Apply(p);
-            using var tx = _repo.BeginTransaction();
-            _repo.UpdateContact(result.Survivor, tx);
-            foreach (var sec in result.RemovedSecondaries) _repo.SoftDeleteContact(sec.Id, tx);
-            tx.Commit();
-            _history.RecordUndo(
-                "merge",
-                new { primary = result.Survivor.Id, removed = result.RemovedSecondaries.Select(c => c.Id) },
-                new { restored = result.RemovedSecondaries.Select(c => c.Id) },
-                $"auto-merge {result.Survivor.DisplayName}");
-            merged++;
+            var merged = 0;
+            foreach (var p in plan.Plans)
+            {
+                var result = _mergeEngine.Apply(p);
+                using var tx = _repo.BeginTransaction();
+                _repo.UpdateContact(result.Survivor, tx);
+                foreach (var sec in result.RemovedSecondaries) _repo.SoftDeleteContact(sec.Id, tx);
+                tx.Commit();
+                _history.RecordUndo(
+                    "merge",
+                    new { primary = result.Survivor.Id, removed = result.RemovedSecondaries.Select(c => c.Id) },
+                    new { restored = result.RemovedSecondaries.Select(c => c.Id) },
+                    $"auto-merge {result.Survivor.DisplayName}");
+                merged++;
+                ReportProgress(
+                    $"Auto-merging {merged}/{plan.Plans.Count} groups",
+                    merged * 100.0 / plan.Plans.Count);
+                if (merged % 25 == 0 || merged == plan.Plans.Count)
+                    await System.Threading.Tasks.Task.Yield();
+            }
+            IsBusy = false;
+            EndProgress("auto-merge");
+            ReloadFromStore();
+            StatusMessage = $"Auto-merged {merged} group(s).  {plan.Skipped} skipped for manual review.";
         }
-        ReloadFromStore();
-        StatusMessage = $"Auto-merged {merged} group(s).  {plan.Skipped} skipped for manual review.";
+        catch (Exception ex)
+        {
+            StatusMessage = $"Auto-merge failed: {ex.Message}";
+            MessageBox.Show(Application.Current.MainWindow,
+                $"Could not finish auto-merge:\n\n{ex.Message}",
+                "Auto-merge",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (IsBusy) IsBusy = false;
+            EndProgress("auto-merge");
+        }
+    }
+
+    private static void AddCleanupReport(BatchCleanupReport total, BatchCleanupReport partial)
+    {
+        total.PhonesDeduped += partial.PhonesDeduped;
+        total.EmailsDeduped += partial.EmailsDeduped;
+        total.UrlsDeduped += partial.UrlsDeduped;
+        total.CategoriesDeduped += partial.CategoriesDeduped;
+        total.PhonesNormalized += partial.PhonesNormalized;
+        total.EmailsCanonicalized += partial.EmailsCanonicalized;
+        total.RegexHits += partial.RegexHits;
+        total.PhotosStripped += partial.PhotosStripped;
+        total.ContactsTouched += partial.ContactsTouched;
+        foreach (var id in partial.TouchedIds) total.TouchedIds.Add(id);
     }
 
     private static Contact JsonClone(Contact src)
@@ -1117,6 +1262,7 @@ public partial class MainViewModel : ObservableObject
         if (snapshot.Count < 2)
         {
             IsDuplicateScanRunning = false;
+            EndProgress("scan");
             Duplicates.Clear();
             RebuildDuplicateMembership();
             ContactsView?.Refresh();
@@ -1127,6 +1273,7 @@ public partial class MainViewModel : ObservableObject
         if (!userInitiated && snapshot.Count > AutoRescanContactLimit)
         {
             IsDuplicateScanRunning = false;
+            EndProgress("scan");
             Duplicates.Clear();
             RebuildDuplicateMembership();
             ContactsView?.Refresh();
@@ -1136,16 +1283,26 @@ public partial class MainViewModel : ObservableObject
 
         if (snapshot.Count < AsyncRescanThreshold)
         {
+            if (userInitiated)
+                BeginProgress($"Scanning {snapshot.Count} contacts", indeterminate: true, owner: "scan");
             IsDuplicateScanRunning = false;
-            Duplicates.Clear();
-            foreach (var g in _dedup.Find(snapshot)) Duplicates.Add(g);
-            RebuildDuplicateMembership();
-            ContactsView?.Refresh();
-            if (userInitiated) StatusMessage = $"Found {Duplicates.Count} duplicate group(s).";
+            try
+            {
+                Duplicates.Clear();
+                foreach (var g in _dedup.Find(snapshot)) Duplicates.Add(g);
+                RebuildDuplicateMembership();
+                ContactsView?.Refresh();
+                if (userInitiated) StatusMessage = $"Found {Duplicates.Count} duplicate group(s).";
+            }
+            finally
+            {
+                EndProgress("scan");
+            }
             return true;
         }
 
         StatusMessage = $"Scanning {snapshot.Count} contacts for duplicates. Tools remain available.";
+        BeginProgress($"Scanning {snapshot.Count} contacts", indeterminate: true, owner: "scan");
         IsDuplicateScanRunning = true;
         _ = System.Threading.Tasks.Task.Run(() => _dedup.Find(snapshot))
             .ContinueWith(t =>
@@ -1167,7 +1324,10 @@ public partial class MainViewModel : ObservableObject
                 finally
                 {
                     if (scanVersion == _duplicateScanVersion)
+                    {
                         IsDuplicateScanRunning = false;
+                        EndProgress("scan");
+                    }
                 }
             }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
         return true;
@@ -1178,6 +1338,8 @@ public partial class MainViewModel : ObservableObject
         _duplicateScanVersion++;
         if (IsDuplicateScanRunning)
             IsDuplicateScanRunning = false;
+        if (_progressOwner == "scan")
+            EndProgress("scan");
     }
 
     private void ReloadFromStore()
@@ -1189,6 +1351,7 @@ public partial class MainViewModel : ObservableObject
         // single-connection-not-thread-safe race window.
         StatusMessage = "Reloading contacts…";
         IsBusy = true;
+        BeginProgress("Reloading contacts", indeterminate: true, owner: "reload");
         _ = System.Threading.Tasks.Task.Run(() =>
             (contacts: _repo.ListContacts(), sources: _repo.ListSources()))
             .ContinueWith(t =>
@@ -1206,7 +1369,11 @@ public partial class MainViewModel : ObservableObject
                     foreach (var s in t.Result.sources) Sources.Add(s);
                     StatusMessage = $"Loaded {Contacts.Count} contact(s).";
                 }
-                finally { IsBusy = false; }
+                finally
+                {
+                    EndProgress("reload");
+                    IsBusy = false;
+                }
                 // Now that the database gate is open again, kick off the snapshot-based
                 // rescan. Large automatic scans will be skipped by RescanDuplicatesCore.
                 RescanDuplicatesCore(userInitiated: false);

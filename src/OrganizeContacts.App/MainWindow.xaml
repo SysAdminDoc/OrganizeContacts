@@ -63,31 +63,11 @@
                                            FontSize="11"
                                            Foreground="{DynamicResource Subtext0Brush}" />
                             </StackPanel>
-                            <TextBlock Text="Local-first contact cleanup, dedupe, and rollback"
+                            <TextBlock Text="Import, clean, dedupe, and export contacts"
                                        Foreground="{DynamicResource Subtext0Brush}"
                                        FontSize="12"
                                        Margin="0,3,0,0" />
                         </StackPanel>
-                    </StackPanel>
-
-                    <StackPanel Grid.Column="1"
-                                Orientation="Horizontal"
-                                VerticalAlignment="Center">
-                        <Border Background="{DynamicResource MantleBrush}"
-                                BorderBrush="{DynamicResource Surface0Brush}"
-                                BorderThickness="1"
-                                CornerRadius="12"
-                                Padding="10,5"
-                                Margin="0,0,8,0">
-                            <TextBlock Text="Offline by default" Style="{StaticResource PillText}" />
-                        </Border>
-                        <Border Background="{DynamicResource MantleBrush}"
-                                BorderBrush="{DynamicResource Surface0Brush}"
-                                BorderThickness="1"
-                                CornerRadius="12"
-                                Padding="10,5">
-                            <TextBlock Text="Rollback-aware imports" Style="{StaticResource PillText}" />
-                        </Border>
                     </StackPanel>
                 </Grid>
 
@@ -499,7 +479,38 @@
                            FontSize="12"
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Status message" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="0,0,10,0">
+                        <StackPanel.Style>
+                            <Style TargetType="{x:Type StackPanel}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsProgressVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="{Binding ProgressLabel}"
+                                   Foreground="{DynamicResource Subtext1Brush}"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
+                                   MaxWidth="260"
+                                   Margin="0,0,8,0"
+                                   AutomationProperties.LiveSetting="Polite" />
+                        <ProgressBar Width="210"
+                                     Height="8"
+                                     Minimum="0"
+                                     Maximum="100"
+                                     Value="{Binding ProgressValue}"
+                                     IsIndeterminate="{Binding IsProgressIndeterminate}"
+                                     AutomationProperties.Name="{Binding ProgressLabel}" />
+                    </StackPanel>
                     <Border Background="{DynamicResource MantleBrush}"
                             BorderBrush="{DynamicResource Surface0Brush}"
                             BorderThickness="1"

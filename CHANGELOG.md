@@ -25,7 +25,12 @@ Format breadth and migration round-trip.
 - Added `.github/workflows/test.yml` CI pipeline: builds with `-warnaserror`, runs xunit, uploads `test-results.trx`, generates dependency manifest + vulnerable-package report on every push and PR.
 - Hardened `release.yml`: now runs tests as a gate, builds with `-warnaserror`, attaches an SBOM file (`sbom-vX.Y.Z.txt`) and SHA-256 sums for both ZIP and SBOM.
 - Added `docs/MIGRATION_RECIPES.md` covering Google, iCloud, Outlook for Windows, Outlook on the web, Android, and Thunderbird/CardBook export-and-import flows.
-- Total tests: 60 passing.
+- Added `CardDavClient` (Next#6): minimal read-only CardDAV with PROPFIND-based discovery (well-known/.well-known/carddav, current-user-principal, addressbook-home-set), address book listing, and per-card GET with ETag tracking. HttpClient is injectable so tests can mock without a network.
+- Added `CardDavImporter` so the same preview/snapshot/UID-REV-idempotence pipeline applies to a CardDAV address book.
+- Added `CardDavConnectDialog` UI: server URL + Basic auth credentials + "Save in DPAPI vault" toggle + Discover books + Import selected.
+- Bound `ImportCardDavCommand` to a "CardDAV…" header button. Saved credentials prefill on next session via DPAPI vault.
+- 3 new xunit tests for CardDavClient parsing + discovery + listing (mocked HttpClient).
+- Total tests: 63 passing.
 
 ## v0.2.0 — 2026-05-07 (in-progress)
 

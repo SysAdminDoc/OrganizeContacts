@@ -10,8 +10,10 @@ using OrganizeContacts.App.Views;
 using OrganizeContacts.Core;
 using OrganizeContacts.Core.Dedup;
 using OrganizeContacts.Core.Importers;
+using OrganizeContacts.Core.CardDav;
 using OrganizeContacts.Core.Cleanup;
 using OrganizeContacts.Core.Merge;
+using OrganizeContacts.Core.Security;
 using OrganizeContacts.Core.Models;
 using OrganizeContacts.Core.Normalize;
 using OrganizeContacts.Core.Storage;
@@ -34,6 +36,7 @@ public partial class MainViewModel : ObservableObject
     private readonly RollbackService _rollback;
     private readonly MergeEngine _mergeEngine = new();
     private readonly AutoMergeService _autoMerge = new();
+    private readonly CredentialVault _vault;
     private readonly EmailCanonicalizer _emailCanon = new();
     private readonly AppSettings _settings;
     private readonly PhoneNormalizer _phoneNormalizer;
@@ -83,6 +86,7 @@ public partial class MainViewModel : ObservableObject
         _repo = new ContactRepository(Path.Combine(_dataDir, "contacts.sqlite"));
         _history = new HistoryStore(_repo);
         _rollback = new RollbackService(_repo);
+        _vault = new CredentialVault(Path.Combine(_dataDir, "vault.dat"));
         _phoneNormalizer = new PhoneNormalizer(_settings.DefaultRegion);
         _emailCanon = new EmailCanonicalizer
         {
@@ -149,6 +153,105 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private async Task ImportOutlookCsvAsync() => await RunImport("Outlook CSV (*.csv)|*.csv|All files (*.*)|*.*", _outlookCsv, SourceKind.OutlookCsv);
+
+    [RelayCommand]
+    private async Task ImportCardDavAsync()
+    {
+        // Pre-fill from vault if Windows + an existing entry exists.
+        string? url = null, user = null, pass = null;
+        if (CredentialVault.IsSupported)
+        {
+            var saved = _vault.Get("carddav");
+            if (saved is not null)
+            {
+                user = saved.Username;
+                pass = saved.Secret;
+                url = saved.Account.StartsWith("http") ? saved.Account : null;
+            }
+        }
+
+        var dlg = new CardDavConnectDialog(url, user, pass) { Owner = Application.Current.MainWindow };
+        if (dlg.ShowDialog() != true) return;
+        if (dlg.SelectedBook is null) return;
+
+        if (CredentialVault.IsSupported && dlg.SaveCredentials)
+            _vault.Save("carddav", dlg.Username, dlg.Password);
+
+        var serverUri = new Uri(dlg.ServerUrl);
+        var importer = new CardDavImporter(
+            () => new CardDavClient(serverUri, dlg.Username, dlg.Password),
+            dlg.SelectedBook.Url);
+
+        StatusMessage = $"Generating preview for CardDAV {dlg.SelectedBook.DisplayName}…";
+        var source = _repo.UpsertSource(new ContactSource
+        {
+            Kind = SourceKind.CardDav,
+            Label = dlg.SelectedBook.DisplayName,
+            FilePath = dlg.SelectedBook.Url,
+            Account = dlg.Username,
+        });
+        if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
+
+        var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
+        var report = await previewer.PreviewAsync(importer, dlg.SelectedBook.Url, source.Id);
+
+        var preview = new ImportPreviewDialog(dlg.SelectedBook.DisplayName, report) { Owner = Application.Current.MainWindow };
+        if (preview.ShowDialog() != true)
+        {
+            StatusMessage = $"CardDAV import cancelled. {report.Summary}";
+            return;
+        }
+
+        var import = _repo.StartImport(new ImportRecord
+        {
+            SourceId = source.Id,
+            FilePath = dlg.SelectedBook.Url,
+            Status = ImportStatus.Pending,
+        });
+        if (preview.CaptureSnapshot)
+        {
+            var touched = report.Items.Where(i => i.Existing is not null).Select(i => i.Existing!).ToList();
+            if (touched.Count > 0) _rollback.CaptureForImport(import.Id, touched, $"before CardDAV {dlg.SelectedBook.DisplayName}");
+        }
+
+        var added = 0; var updated = 0; var skipped = 0;
+        using var tx = _repo.BeginTransaction();
+        foreach (var item in report.Items)
+        {
+            var c = item.Incoming;
+            c.SourceId = source.Id;
+            c.ImportId = import.Id;
+            StampSourceOnChildren(c, source.Id);
+            switch (item.Action)
+            {
+                case ImportAction.New:
+                    _repo.InsertContact(c, tx); Contacts.Add(c); added++;
+                    break;
+                case ImportAction.UpdateNewer:
+                    if (item.Existing is not null) c.Id = item.Existing.Id;
+                    _repo.UpdateContact(c, tx);
+                    var idx = IndexOfContact(c.Id);
+                    if (idx >= 0) Contacts[idx] = c;
+                    updated++;
+                    break;
+                default:
+                    skipped++; break;
+            }
+        }
+        tx.Commit();
+        import.FinishedAt = DateTimeOffset.UtcNow;
+        import.Status = ImportStatus.Committed;
+        import.ContactsCreated = added;
+        import.ContactsUpdated = updated;
+        import.ContactsSkipped = skipped;
+        _repo.FinishImport(import);
+        _history.Audit("import.carddav", payload: $"book={dlg.SelectedBook.Url};added={added};updated={updated};skipped={skipped}");
+
+        RescanDuplicates();
+        StatusMessage =
+            $"CardDAV {dlg.SelectedBook.DisplayName}: +{added} new, ~{updated} updated, {skipped} skipped. " +
+            $"Total: {Contacts.Count}.";
+    }
 
     private async Task RunImport(string filter, IContactImporter importer, SourceKind kind)
     {

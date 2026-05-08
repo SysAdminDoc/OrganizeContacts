@@ -223,7 +223,7 @@ Tiers:
    - Novelty: parity for contacts, uncommon in OSS.
    - Justification: photos are common in mobile exports and are a useful duplicate signal, but image parsing raises security risk.
 
-6. CardDAV read-only client with discovery, ETags, and conflict-safe local import.
+6. [x] CardDAV read-only client with discovery, ETags, and conflict-safe local import. *(v0.3.0 - CardDavClient with PROPFIND-based discovery (well-known + current-user-principal + addressbook-home-set), ETag-aware enumeration, GET-per-card fetch; CardDavImporter wraps it as IContactImporter; CardDavConnectDialog UI; integrates with the same preview/snapshot/commit/UID-REV-idempotence flow as a local file import)*
    - Sources: L02, S02, S24-S30, S43, S50, S65, S66.
    - Impact 4, effort 5, risk high.
    - Dependencies: import preview, credential storage, source attribution.

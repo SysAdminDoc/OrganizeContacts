@@ -21,7 +21,11 @@ public partial class MainViewModel : ObservableObject
     private readonly string _settingsPath;
 
     private readonly VCardImporter _vcard = new();
+    private readonly GoogleCsvImporter _googleCsv = new();
+    private readonly OutlookCsvImporter _outlookCsv = new();
     private readonly VCardWriter _vcardWriter = new();
+    private readonly GoogleCsvWriter _googleCsvWriter = new();
+    private readonly OutlookCsvWriter _outlookCsvWriter = new();
     private readonly ContactRepository _repo;
     private readonly HistoryStore _history;
     private readonly RollbackService _rollback;
@@ -79,12 +83,20 @@ public partial class MainViewModel : ObservableObject
     };
 
     [RelayCommand]
-    private async Task ImportVCardAsync()
+    private async Task ImportVCardAsync() => await RunImport("vCard files (*.vcf;*.vcard)|*.vcf;*.vcard|All files (*.*)|*.*", _vcard, SourceKind.File);
+
+    [RelayCommand]
+    private async Task ImportGoogleCsvAsync() => await RunImport("Google CSV (*.csv)|*.csv|All files (*.*)|*.*", _googleCsv, SourceKind.GoogleCsv);
+
+    [RelayCommand]
+    private async Task ImportOutlookCsvAsync() => await RunImport("Outlook CSV (*.csv)|*.csv|All files (*.*)|*.*", _outlookCsv, SourceKind.OutlookCsv);
+
+    private async Task RunImport(string filter, IContactImporter importer, SourceKind kind)
     {
         var dlg = new OpenFileDialog
         {
-            Title = "Import vCard file",
-            Filter = "vCard files (*.vcf;*.vcard)|*.vcf;*.vcard|All files (*.*)|*.*",
+            Title = $"Import {importer.Name}",
+            Filter = filter,
             CheckFileExists = true,
         };
         if (dlg.ShowDialog() != true) return;
@@ -94,14 +106,14 @@ public partial class MainViewModel : ObservableObject
 
         var source = _repo.UpsertSource(new ContactSource
         {
-            Kind = SourceKind.File,
+            Kind = kind,
             Label = Path.GetFileNameWithoutExtension(fileName),
             FilePath = fileName,
         });
         if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
 
         var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
-        var report = await previewer.PreviewAsync(_vcard, fileName, source.Id);
+        var report = await previewer.PreviewAsync(importer, fileName, source.Id);
 
         var dialog = new ImportPreviewDialog(fileName, report) { Owner = Application.Current.MainWindow };
         if (dialog.ShowDialog() != true)
@@ -178,21 +190,34 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task ExportVCardAsync()
     {
-        if (Contacts.Count == 0)
-        {
-            StatusMessage = "Nothing to export.";
-            return;
-        }
+        if (Contacts.Count == 0) { StatusMessage = "Nothing to export."; return; }
         var dlg = new SaveFileDialog
         {
-            Title = "Export to vCard",
-            Filter = "vCard 3.0 (*.vcf)|*.vcf",
+            Title = "Export contacts",
+            Filter = "vCard 3.0 (*.vcf)|*.vcf|vCard 4.0 (*.vcf)|*.vcf|Google CSV (*.csv)|*.csv|Outlook CSV (*.csv)|*.csv",
             FileName = "OrganizeContacts.vcf",
         };
         if (dlg.ShowDialog() != true) return;
 
-        await _vcardWriter.WriteFileAsync(dlg.FileName, Contacts);
-        _history.Audit("export.vcard", payload: $"file={dlg.FileName};count={Contacts.Count}");
+        switch (dlg.FilterIndex)
+        {
+            case 1:
+                await _vcardWriter.WriteFileAsync(dlg.FileName, Contacts);
+                _history.Audit("export.vcard3", payload: $"file={dlg.FileName};count={Contacts.Count}");
+                break;
+            case 2:
+                await new VCardWriter { Version = VCardVersion.V4_0 }.WriteFileAsync(dlg.FileName, Contacts);
+                _history.Audit("export.vcard4", payload: $"file={dlg.FileName};count={Contacts.Count}");
+                break;
+            case 3:
+                await _googleCsvWriter.WriteFileAsync(dlg.FileName, Contacts.ToList());
+                _history.Audit("export.googlecsv", payload: $"file={dlg.FileName};count={Contacts.Count}");
+                break;
+            case 4:
+                await _outlookCsvWriter.WriteFileAsync(dlg.FileName, Contacts.ToList());
+                _history.Audit("export.outlookcsv", payload: $"file={dlg.FileName};count={Contacts.Count}");
+                break;
+        }
         StatusMessage = $"Exported {Contacts.Count} contact(s) to {Path.GetFileName(dlg.FileName)}.";
     }
 

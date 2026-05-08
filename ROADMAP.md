@@ -188,14 +188,14 @@ Tiers:
 
 ### Next
 
-1. Google/Outlook CSV importers with saved mapping profiles.
+1. [x] Google/Outlook CSV importers with saved mapping profiles. *(v0.3.0 - GoogleCsvImporter + OutlookCsvImporter wired into preview/snapshot pipeline)*
    - Sources: L01, L02, S08, S09, S34, S42.
    - Impact 4, effort 3, risk medium.
    - Dependencies: import preview and source attribution.
    - Novelty: parity.
    - Justification: CSV is the most common migration path after vCard.
 
-2. Export vCard 3.0/4.0, Google CSV, and Outlook CSV with round-trip tests.
+2. [x] Export vCard 3.0/4.0, Google CSV, and Outlook CSV with round-trip tests. *(v0.3.0 - VCardWriter+GoogleCsvWriter+OutlookCsvWriter; multi-format Save dialog; round-trip xunit coverage)*
    - Sources: S01, S03, S08-S10, S21, S22, S34, S56.
    - Impact 5, effort 4, risk high.
    - Dependencies: standards-aware model and test corpus.

@@ -2,6 +2,18 @@
 
 All notable changes to OrganizeContacts will be documented in this file.
 
+## v0.3.0 — 2026-05-07 (in-progress)
+
+Format breadth and migration round-trip.
+
+- Added `CsvReader` (RFC 4180-ish, quoted commas/newlines/double-quotes) and `CsvWriter` helpers.
+- Added `GoogleCsvImporter`: maps Name/Given Name/Family Name, multi-row "E-mail N", "Phone N", "Address N", "Website N", and Group Membership.
+- Added `OutlookCsvImporter`: maps the English Outlook for Windows export schema (3 emails, mobile/home/business/other phones, three address blocks, birthday/anniversary, web page, categories).
+- Added `GoogleCsvWriter` and `OutlookCsvWriter` for round-trip export.
+- Multi-format export: vCard 3.0 / vCard 4.0 / Google CSV / Outlook CSV from the Save dialog.
+- 5 new xunit tests cover CSV import, round-trip, and quoted-field decoding (total: 46 passing).
+- Wired `ImportGoogleCsvCommand` + `ImportOutlookCsvCommand` into MainViewModel (preview → snapshot → commit, same as vCard).
+
 ## v0.2.0 — 2026-05-07 (in-progress)
 
 Trustworthy local data and vCard. Persisting import results and source attribution.

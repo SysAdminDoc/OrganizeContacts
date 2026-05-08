@@ -40,7 +40,7 @@
                     <TextBlock Text="OrganizeContacts"
                                FontSize="18" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" />
-                    <TextBlock Text="v0.2.0"
+                    <TextBlock Text="v0.3.0"
                                Margin="10,3,0,0"
                                FontSize="11"
                                Foreground="{StaticResource Subtext0Brush}" />
@@ -51,6 +51,16 @@
                             Command="{Binding ImportVCardCommand}"
                             ToolTip="Ctrl+O · Read a .vcf file with preview"
                             AutomationProperties.Name="Import vCard file"
+                            Margin="0,0,8,0" />
+                    <Button Content="Import Google CSV…"
+                            Command="{Binding ImportGoogleCsvCommand}"
+                            ToolTip="Read a Google Contacts CSV export"
+                            AutomationProperties.Name="Import Google CSV"
+                            Margin="0,0,8,0" />
+                    <Button Content="Import Outlook CSV…"
+                            Command="{Binding ImportOutlookCsvCommand}"
+                            ToolTip="Read an Outlook for Windows CSV export"
+                            AutomationProperties.Name="Import Outlook CSV"
                             Margin="0,0,8,0" />
                     <Button Content="Export…"
                             Command="{Binding ExportVCardCommand}"

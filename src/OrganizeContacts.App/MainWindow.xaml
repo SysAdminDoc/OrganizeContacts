@@ -94,82 +94,105 @@
                 <WrapPanel Grid.Row="1"
                            Margin="0,14,0,0"
                            VerticalAlignment="Center">
-                    <Button Content="Import folder..."
-                            Style="{StaticResource AccentButton}"
-                            Command="{Binding ImportFolderCommand}"
-                            ToolTip="Ctrl+Shift+O - import every supported contact file in a folder"
-                            AutomationProperties.Name="Import a folder of contact files"
-                            Margin="0,0,8,8" />
-                    <Button Content="Import vCard..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding ImportVCardCommand}"
-                            ToolTip="Ctrl+O - read a .vcf or .vcard file with preview"
-                            AutomationProperties.Name="Import vCard file" />
-                    <Button Content="Google CSV..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding ImportGoogleCsvCommand}"
-                            ToolTip="Read a Google Contacts CSV export"
-                            AutomationProperties.Name="Import Google CSV" />
-                    <Button Content="Outlook CSV..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding ImportOutlookCsvCommand}"
-                            ToolTip="Read an Outlook for Windows CSV export"
-                            AutomationProperties.Name="Import Outlook CSV" />
-                    <Button Content="CardDAV..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding ImportCardDavCommand}"
-                            ToolTip="Connect to a CardDAV server and import an address book"
-                            AutomationProperties.Name="Connect to CardDAV server" />
-                    <Button Content="LDIF..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding ImportLdifCommand}"
-                            ToolTip="Read a Thunderbird/Mozilla LDIF export"
-                            AutomationProperties.Name="Import LDIF" />
-                    <Button Content="jCard..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding ImportJCardCommand}"
-                            ToolTip="Read a jCard (RFC 7095) JSON file"
-                            AutomationProperties.Name="Import jCard" />
-                    <Button Content="Export..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding ExportVCardCommand}"
-                            ToolTip="Ctrl+E - write the current contacts to a file"
-                            AutomationProperties.Name="Export contacts" />
-                    <Button Content="Rescan"
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding RescanDuplicatesCommand}"
-                            ToolTip="Ctrl+R - re-run the duplicate scan"
-                            AutomationProperties.Name="Rescan duplicates" />
-                    <Button Content="Cleanup..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding RunCleanupCommand}"
-                            ToolTip="Normalize and dedupe fields within each contact"
-                            AutomationProperties.Name="Run batch cleanup" />
-                    <Button Content="Auto-merge"
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding AutoMergeCommand}"
-                            ToolTip="Auto-merge groups whose secondaries are subsets of the primary"
-                            AutomationProperties.Name="Auto-merge subset duplicates" />
-                    <Button Content="Undo"
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding UndoLastCommand}"
-                            ToolTip="Ctrl+Z - undo the most recent merge"
-                            AutomationProperties.Name="Undo last merge" />
-                    <Button Content="History..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding OpenRestoreHistoryCommand}"
-                            ToolTip="Review imports and rollback snapshots"
-                            AutomationProperties.Name="Open restore history" />
-                    <Button Content="Settings..."
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding OpenSettingsCommand}"
-                            ToolTip="Ctrl+, - region, match profile, canonicalization, theme"
-                            AutomationProperties.Name="Open settings" />
-                    <Button Content="Clear visible"
-                            Style="{StaticResource ToolbarButton}"
-                            Command="{Binding ClearAllCommand}"
-                            ToolTip="Soft-delete contacts matching the current search and queue filter"
-                            AutomationProperties.Name="Soft-delete the visible contacts" />
+                    <Border Style="{StaticResource ToolbarGroup}">
+                        <StackPanel>
+                            <TextBlock Text="IMPORT" Style="{StaticResource ToolbarGroupLabel}" />
+                            <WrapPanel>
+                                <Button Content="Folder..."
+                                        Style="{StaticResource AccentButton}"
+                                        Command="{Binding ImportFolderCommand}"
+                                        ToolTip="Ctrl+Shift+O - import every supported contact file in a folder"
+                                        AutomationProperties.Name="Import a folder of contact files"
+                                        Margin="0,0,8,0" />
+                                <Button Content="vCard..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ImportVCardCommand}"
+                                        ToolTip="Ctrl+O - read a .vcf or .vcard file with preview"
+                                        AutomationProperties.Name="Import vCard file" />
+                                <Button Content="Google CSV..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ImportGoogleCsvCommand}"
+                                        ToolTip="Read a Google Contacts CSV export"
+                                        AutomationProperties.Name="Import Google CSV" />
+                                <Button Content="Outlook CSV..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ImportOutlookCsvCommand}"
+                                        ToolTip="Read an Outlook for Windows CSV export"
+                                        AutomationProperties.Name="Import Outlook CSV" />
+                                <Button Content="CardDAV..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ImportCardDavCommand}"
+                                        ToolTip="Connect to a CardDAV server and import an address book"
+                                        AutomationProperties.Name="Connect to CardDAV server" />
+                                <Button Content="LDIF..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ImportLdifCommand}"
+                                        ToolTip="Read a Thunderbird/Mozilla LDIF export"
+                                        AutomationProperties.Name="Import LDIF" />
+                                <Button Content="jCard..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ImportJCardCommand}"
+                                        ToolTip="Read a jCard (RFC 7095) JSON file"
+                                        AutomationProperties.Name="Import jCard" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource ToolbarGroup}">
+                        <StackPanel>
+                            <TextBlock Text="EXPORT" Style="{StaticResource ToolbarGroupLabel}" />
+                            <WrapPanel>
+                                <Button Content="Export..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ExportVCardCommand}"
+                                        ToolTip="Ctrl+E - write the current contacts to a file"
+                                        AutomationProperties.Name="Export contacts" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource ToolbarGroup}">
+                        <StackPanel>
+                            <TextBlock Text="TOOLS" Style="{StaticResource ToolbarGroupLabel}" />
+                            <WrapPanel>
+                                <Button Content="Rescan"
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding RescanDuplicatesCommand}"
+                                        ToolTip="Ctrl+R - re-run the duplicate scan"
+                                        AutomationProperties.Name="Rescan duplicates" />
+                                <Button Content="Cleanup..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding RunCleanupCommand}"
+                                        ToolTip="Normalize and dedupe fields within each contact"
+                                        AutomationProperties.Name="Run batch cleanup" />
+                                <Button Content="Auto-merge"
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding AutoMergeCommand}"
+                                        ToolTip="Auto-merge groups whose secondaries are subsets of the primary"
+                                        AutomationProperties.Name="Auto-merge subset duplicates" />
+                                <Button Content="Undo"
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding UndoLastCommand}"
+                                        ToolTip="Ctrl+Z - undo the most recent merge"
+                                        AutomationProperties.Name="Undo last merge" />
+                                <Button Content="History..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding OpenRestoreHistoryCommand}"
+                                        ToolTip="Review imports and rollback snapshots"
+                                        AutomationProperties.Name="Open restore history" />
+                                <Button Content="Settings..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding OpenSettingsCommand}"
+                                        ToolTip="Ctrl+, - region, match profile, canonicalization, theme"
+                                        AutomationProperties.Name="Open settings" />
+                                <Button Content="Clear visible"
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ClearAllCommand}"
+                                        ToolTip="Soft-delete contacts matching the current search and queue filter"
+                                        AutomationProperties.Name="Soft-delete the visible contacts" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
                 </WrapPanel>
             </Grid>
         </Border>

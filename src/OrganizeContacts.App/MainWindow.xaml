@@ -190,6 +190,11 @@
                                         Command="{Binding ClearAllCommand}"
                                         ToolTip="Soft-delete contacts matching the current search and queue filter"
                                         AutomationProperties.Name="Soft-delete the visible contacts" />
+                                <Button Content="Clear all..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ClearAllContactsCommand}"
+                                        ToolTip="Soft-delete every imported contact, ignoring search and queue filters"
+                                        AutomationProperties.Name="Soft-delete all imported contacts" />
                             </WrapPanel>
                         </StackPanel>
                     </Border>
@@ -494,27 +499,49 @@
                            FontSize="12"
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Status message" />
-                <Border Grid.Column="1"
-                        Background="{DynamicResource MantleBrush}"
-                        BorderBrush="{DynamicResource Surface0Brush}"
-                        BorderThickness="1"
-                        CornerRadius="11"
-                        Padding="9,4">
-                    <Border.Style>
-                        <Style TargetType="{x:Type Border}">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                                    <Setter Property="Visibility" Value="Visible" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
-                    <TextBlock Text="Working"
-                               Foreground="{DynamicResource AccentAltBrush}"
-                               FontSize="11"
-                               FontWeight="SemiBold" />
-                </Border>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Border Background="{DynamicResource MantleBrush}"
+                            BorderBrush="{DynamicResource Surface0Brush}"
+                            BorderThickness="1"
+                            CornerRadius="11"
+                            Padding="9,4"
+                            Margin="0,0,8,0">
+                        <Border.Style>
+                            <Style TargetType="{x:Type Border}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDuplicateScanRunning}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="Scanning duplicates"
+                                   Foreground="{DynamicResource AccentAltBrush}"
+                                   FontSize="11"
+                                   FontWeight="SemiBold" />
+                    </Border>
+                    <Border Background="{DynamicResource MantleBrush}"
+                            BorderBrush="{DynamicResource Surface0Brush}"
+                            BorderThickness="1"
+                            CornerRadius="11"
+                            Padding="9,4">
+                        <Border.Style>
+                            <Style TargetType="{x:Type Border}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="Working"
+                                   Foreground="{DynamicResource AccentAltBrush}"
+                                   FontSize="11"
+                                   FontWeight="SemiBold" />
+                    </Border>
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>

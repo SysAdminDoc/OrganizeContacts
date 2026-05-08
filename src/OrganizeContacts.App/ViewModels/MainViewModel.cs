@@ -90,11 +90,9 @@ public partial class MainViewModel : ObservableObject
         ReviewMergeCommand.NotifyCanExecuteChanged();
 
     /// <summary>
-    /// True while a background DB operation (reload, import, rescan above the threshold)
-    /// is in flight. We use this to gate every command that touches the SQLite connection,
-    /// because <see cref="Microsoft.Data.Sqlite.SqliteConnection"/> is not thread-safe — a
-    /// UI-thread `Audit` call landing while the worker is mid-`ListContacts` would throw
-    /// `SQLITE_MISUSE`.
+    /// True while a database operation is in flight. This gates commands that touch the
+    /// single SQLite connection, but duplicate scans run from an in-memory snapshot and
+    /// use their own state so tools do not stay disabled after a large import.
     /// </summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ImportVCardCommand))]
@@ -110,12 +108,21 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(AutoMergeCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoLastCommand))]
     [NotifyCanExecuteChangedFor(nameof(ClearAllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ClearAllContactsCommand))]
     [NotifyCanExecuteChangedFor(nameof(ReviewMergeCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenRestoreHistoryCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenSettingsCommand))]
     private bool _isBusy;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RescanDuplicatesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AutoMergeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ReviewMergeCommand))]
+    private bool _isDuplicateScanRunning;
+
     private bool NotBusy() => !IsBusy;
+    private bool CanStartDuplicateScan() => !IsBusy && !IsDuplicateScanRunning;
+    private bool CanUseDuplicateResults() => !IsBusy && !IsDuplicateScanRunning;
 
     public MainViewModel()
     {
@@ -161,9 +168,9 @@ public partial class MainViewModel : ObservableObject
         foreach (var c in _repo.ListContacts()) Contacts.Add(c);
         if (Contacts.Count > 0)
         {
-            // First-load dedup runs sync so the user sees results immediately, but
-            // subsequent rescans (after import/cleanup/merge) hop to a worker.
-            RescanDuplicates();
+            // First-load dedup is skipped for very large libraries so the app does not
+            // open into a disabled toolbar after a bulk import.
+            RescanDuplicatesCore(userInitiated: false);
         }
         if (_settings.LoadError is { Length: > 0 })
             StatusMessage = $"Settings file was unreadable; reverted to defaults (.invalid.bak preserved). {_settings.LoadError}";
@@ -340,14 +347,15 @@ public partial class MainViewModel : ObservableObject
             IsBusy = false;
         }
 
-        RescanDuplicates();
+        var autoScanRan = RescanDuplicatesCore(userInitiated: false);
         if (commitFailures.Count > 0)
             ShowImportFailures("Some files could not be committed", commitFailures);
 
         StatusMessage =
             $"{Path.GetFileName(folder)}: committed {totals.FilesCommitted}/{batches.Count} file(s), " +
             $"+{totals.Added} new, ~{totals.Updated} updated, {totals.Skipped} skipped. " +
-            $"Total: {Contacts.Count}. Duplicate groups: {Duplicates.Count}.";
+            $"Total: {Contacts.Count}. " +
+            (autoScanRan ? $"Duplicate groups: {Duplicates.Count}." : "Duplicate scan skipped for this large library; use Rescan when ready.");
     }
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
@@ -416,6 +424,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        InvalidateDuplicateScan();
         var import = _repo.StartImport(new ImportRecord
         {
             SourceId = source.Id,
@@ -485,10 +494,11 @@ public partial class MainViewModel : ObservableObject
         _repo.FinishImport(import);
         _history.Audit("import.carddav", payload: $"book={dlg.SelectedBook.Url};added={added};updated={updated};skipped={skipped}");
 
-        RescanDuplicates();
+        var autoScanRan = RescanDuplicatesCore(userInitiated: false);
         StatusMessage =
             $"CardDAV {dlg.SelectedBook.DisplayName}: +{added} new, ~{updated} updated, {skipped} skipped. " +
-            $"Total: {Contacts.Count}.";
+            $"Total: {Contacts.Count}." +
+            (autoScanRan ? "" : " Duplicate scan skipped for this large library; use Rescan when ready.");
     }
 
     private async Task RunImport(string filter, IContactImporter importer, SourceKind kind)
@@ -543,6 +553,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         IsBusy = true;
+        InvalidateDuplicateScan();
         var import = _repo.StartImport(new ImportRecord
         {
             SourceId = source.Id,
@@ -635,10 +646,11 @@ public partial class MainViewModel : ObservableObject
         _repo.FinishImport(import);
         _history.Audit("import.file", payload: $"file={fileName};format={importer.Name};added={added};updated={updated};skipped={skipped}");
 
-        RescanDuplicates();
+        var autoScanRan = RescanDuplicatesCore(userInitiated: false);
         StatusMessage =
             $"{Path.GetFileName(fileName)}: +{added} new, ~{updated} updated, {skipped} skipped. " +
-            $"Total: {Contacts.Count}. Duplicate groups: {Duplicates.Count}.";
+            $"Total: {Contacts.Count}. " +
+            (autoScanRan ? $"Duplicate groups: {Duplicates.Count}." : "Duplicate scan skipped for this large library; use Rescan when ready.");
     }
 
     private async Task<(ContactSource Source, ImportPreviewReport Report)> PreviewImportFileAsync(
@@ -666,6 +678,7 @@ public partial class MainViewModel : ObservableObject
         bool captureSnapshot,
         string auditOperation)
     {
+        InvalidateDuplicateScan();
         var import = _repo.StartImport(new ImportRecord
         {
             SourceId = source.Id,
@@ -817,6 +830,7 @@ public partial class MainViewModel : ObservableObject
         var dlg = new SettingsDialog(_settings) { Owner = Application.Current.MainWindow };
         if (dlg.ShowDialog() == true)
         {
+            InvalidateDuplicateScan();
             _settings.Save(_settingsPath);
             App.ApplyTheme(_settings.Theme);
             // Rebuild the settings-derived collaborators so a profile change takes effect
@@ -830,8 +844,10 @@ public partial class MainViewModel : ObservableObject
             };
             _dedup = new DedupEngine(GetMatchRules(), _emailCanon);
             _history.Audit("settings.save");
-            RescanDuplicates();
-            StatusMessage = "Settings saved. Re-scanning duplicates with new rules…";
+            var autoScanRan = RescanDuplicatesCore(userInitiated: false);
+            StatusMessage = autoScanRan
+                ? "Settings saved. Re-scanning duplicates with new rules..."
+                : "Settings saved. Duplicate scan skipped for this large library; use Rescan when ready.";
         }
     }
 
@@ -848,7 +864,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     private bool CanReviewMerge() =>
-        !IsBusy && SelectedDuplicateGroup is { Members.Count: >= 2 };
+        !IsBusy && !IsDuplicateScanRunning && SelectedDuplicateGroup is { Members.Count: >= 2 };
 
     [RelayCommand(CanExecute = nameof(CanReviewMerge))]
     private void ReviewMerge()
@@ -859,6 +875,7 @@ public partial class MainViewModel : ObservableObject
         var dlg = new MergeReviewDialog(SelectedDuplicateGroup) { Owner = Application.Current.MainWindow };
         if (dlg.ShowDialog() != true || dlg.Result is null) return;
 
+        InvalidateDuplicateScan();
         var result = _mergeEngine.Apply(dlg.Result);
 
         using var tx = _repo.BeginTransaction();
@@ -900,6 +917,7 @@ public partial class MainViewModel : ObservableObject
         // For merge: re-insert removed contacts via reading the inverse JSON.
         try
         {
+            InvalidateDuplicateScan();
             using var doc = System.Text.Json.JsonDocument.Parse(entry.InverseJson);
             if (entry.Op == "merge" && doc.RootElement.TryGetProperty("restored", out var restored))
             {
@@ -937,16 +955,37 @@ public partial class MainViewModel : ObservableObject
         }
 
         var hidden = Contacts.Count - targets.Count;
+        var msg = hidden > 0
+            ? $"Soft-delete the {targets.Count} visible contact(s)?  ({hidden} hidden by filter will be kept.)  You can restore them via Restore History."
+            : $"Soft-delete all {targets.Count} contact(s)?  You can restore them via Restore History.";
+        ClearTargets(targets, "Clear visible", msg, $"hidden_kept={hidden}");
+    }
+
+    [RelayCommand(CanExecute = nameof(NotBusy))]
+    private void ClearAllContacts()
+    {
+        var targets = Contacts.ToList();
+        if (targets.Count == 0)
+        {
+            StatusMessage = "Nothing to clear.";
+            return;
+        }
+
+        var msg =
+            $"Soft-delete all {targets.Count} imported contact(s), ignoring search and queue filters?  You can restore them via Restore History.";
+        ClearTargets(targets, "Clear all contacts", msg, "scope=all");
+    }
+
+    private void ClearTargets(IReadOnlyList<Contact> targets, string title, string message, string auditSuffix)
+    {
         if (_settings.ConfirmDestructiveActions)
         {
-            var msg = hidden > 0
-                ? $"Soft-delete the {targets.Count} visible contact(s)?  ({hidden} hidden by filter will be kept.)  You can restore them via Restore History."
-                : $"Soft-delete all {targets.Count} contact(s)?  You can restore them via Restore History.";
             var ok = MessageBox.Show(Application.Current.MainWindow,
-                msg, "Clear", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+                message, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (ok != MessageBoxResult.OK) return;
         }
 
+        InvalidateDuplicateScan();
         var idSet = new HashSet<Guid>(targets.Select(t => t.Id));
         using var tx = _repo.BeginTransaction();
         foreach (var c in targets) _repo.SoftDeleteContact(c.Id, tx);
@@ -954,9 +993,9 @@ public partial class MainViewModel : ObservableObject
         // Mutate the source collection from the back to keep indices stable.
         for (int i = Contacts.Count - 1; i >= 0; i--)
             if (idSet.Contains(Contacts[i].Id)) Contacts.RemoveAt(i);
-        RescanDuplicates();
+        RescanDuplicatesCore(userInitiated: false);
         StatusMessage = $"Cleared (soft-delete) {targets.Count} contact(s). Use Restore History to roll back.";
-        _history.Audit("contacts.clear", payload: $"count={targets.Count};hidden_kept={hidden}");
+        _history.Audit("contacts.clear", payload: $"count={targets.Count};{auditSuffix}");
     }
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
@@ -968,6 +1007,7 @@ public partial class MainViewModel : ObservableObject
 
         var importId = Guid.NewGuid();
         // Snapshot every contact before mutating so cleanup is rollback-able.
+        InvalidateDuplicateScan();
         _rollback.CaptureForImport(importId, Contacts.Select(JsonClone).ToList(), $"before cleanup");
 
         var cleaner = new BatchCleanup(_phoneNormalizer, _emailCanon);
@@ -1000,11 +1040,11 @@ public partial class MainViewModel : ObservableObject
                 _repo.UpdateContact(c, tx);
         tx.Commit();
         _history.Audit("cleanup.run", payload: report.Summary);
-        RescanDuplicates();
+        RescanDuplicatesCore(userInitiated: false);
         StatusMessage = report.Summary;
     }
 
-    [RelayCommand(CanExecute = nameof(NotBusy))]
+    [RelayCommand(CanExecute = nameof(CanUseDuplicateResults))]
     private void AutoMerge()
     {
         if (Duplicates.Count == 0) { StatusMessage = "No duplicates."; return; }
@@ -1025,6 +1065,7 @@ public partial class MainViewModel : ObservableObject
             if (ok != MessageBoxResult.OK) return;
         }
 
+        InvalidateDuplicateScan();
         var merged = 0;
         foreach (var p in plan.Plans)
         {
@@ -1055,28 +1096,63 @@ public partial class MainViewModel : ObservableObject
     /// tax (and tests stay single-threaded).</summary>
     private const int AsyncRescanThreshold = 500;
 
-    [RelayCommand(CanExecute = nameof(NotBusy))]
+    /// <summary>Automatic scans above this size are skipped so imports remain recoverable
+    /// and tool buttons stay available. The user can still run Rescan explicitly.</summary>
+    private const int AutoRescanContactLimit = 25000;
+
+    private int _duplicateScanVersion;
+
+    [RelayCommand(CanExecute = nameof(CanStartDuplicateScan))]
     private void RescanDuplicates()
+    {
+        RescanDuplicatesCore(userInitiated: true);
+    }
+
+    private bool RescanDuplicatesCore(bool userInitiated)
     {
         // Snapshot the input collection so the worker doesn't mutate the UI's
         // ObservableCollection while WPF is iterating it.
         var snapshot = Contacts.ToList();
+        var scanVersion = ++_duplicateScanVersion;
+        if (snapshot.Count < 2)
+        {
+            IsDuplicateScanRunning = false;
+            Duplicates.Clear();
+            RebuildDuplicateMembership();
+            ContactsView?.Refresh();
+            if (userInitiated) StatusMessage = "No duplicates to scan.";
+            return true;
+        }
+
+        if (!userInitiated && snapshot.Count > AutoRescanContactLimit)
+        {
+            IsDuplicateScanRunning = false;
+            Duplicates.Clear();
+            RebuildDuplicateMembership();
+            ContactsView?.Refresh();
+            StatusMessage = $"Duplicate scan skipped for {snapshot.Count} contacts. Use Rescan when ready.";
+            return false;
+        }
+
         if (snapshot.Count < AsyncRescanThreshold)
         {
+            IsDuplicateScanRunning = false;
             Duplicates.Clear();
             foreach (var g in _dedup.Find(snapshot)) Duplicates.Add(g);
             RebuildDuplicateMembership();
             ContactsView?.Refresh();
-            return;
+            if (userInitiated) StatusMessage = $"Found {Duplicates.Count} duplicate group(s).";
+            return true;
         }
 
-        StatusMessage = $"Scanning {snapshot.Count} contacts for duplicates…";
-        IsBusy = true;
+        StatusMessage = $"Scanning {snapshot.Count} contacts for duplicates. Tools remain available.";
+        IsDuplicateScanRunning = true;
         _ = System.Threading.Tasks.Task.Run(() => _dedup.Find(snapshot))
             .ContinueWith(t =>
             {
                 try
                 {
+                    if (scanVersion != _duplicateScanVersion) return;
                     if (t.IsFaulted)
                     {
                         StatusMessage = $"Duplicate scan failed: {t.Exception?.GetBaseException().Message}";
@@ -1088,8 +1164,20 @@ public partial class MainViewModel : ObservableObject
                     ContactsView?.Refresh();
                     StatusMessage = $"Found {Duplicates.Count} duplicate group(s).";
                 }
-                finally { IsBusy = false; }
+                finally
+                {
+                    if (scanVersion == _duplicateScanVersion)
+                        IsDuplicateScanRunning = false;
+                }
             }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
+        return true;
+    }
+
+    private void InvalidateDuplicateScan()
+    {
+        _duplicateScanVersion++;
+        if (IsDuplicateScanRunning)
+            IsDuplicateScanRunning = false;
     }
 
     private void ReloadFromStore()
@@ -1119,9 +1207,9 @@ public partial class MainViewModel : ObservableObject
                     StatusMessage = $"Loaded {Contacts.Count} contact(s).";
                 }
                 finally { IsBusy = false; }
-                // Now that the gate is open again, kick off the rescan (which will
-                // re-acquire IsBusy if the contact count crosses the async threshold).
-                RescanDuplicates();
+                // Now that the database gate is open again, kick off the snapshot-based
+                // rescan. Large automatic scans will be skipped by RescanDuplicatesCore.
+                RescanDuplicatesCore(userInitiated: false);
             }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
     }
 

@@ -33,7 +33,7 @@ public partial class CleanupDialog : Window
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show(this, $"Invalid regex: {ex.Message}", "Cleanup",
+                ThemedMessageDialog.Show(this, $"Invalid regex: {ex.Message}", "Cleanup",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }

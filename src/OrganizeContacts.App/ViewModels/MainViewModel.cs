@@ -304,7 +304,7 @@ public partial class MainViewModel : ObservableObject
         if (detected.Count == 0)
         {
             StatusMessage = $"{Path.GetFileName(folder)}: no supported contact files found.";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 "No supported contact files were found in that folder.\n\nSupported formats: vCard, Google CSV, Outlook CSV, LDIF, and jCard.",
                 "Import folder", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
@@ -474,7 +474,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"CardDAV preview failed: {ex.Message}";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Could not fetch the address book:\n\n{ex.Message}",
                 "CardDAV", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
@@ -508,7 +508,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"CardDAV import failed mid-commit: {ex.Message}";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"The CardDAV import was rolled back.\n\n{ex.Message}",
                 "CardDAV", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
@@ -555,7 +555,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Could not read {Path.GetFileName(fileName)}: {ex.Message}";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Could not read the file:\n\n{ex.Message}",
                 "Import failed", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
@@ -595,7 +595,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Import failed mid-commit: {ex.Message}";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"The import was rolled back.\n\n{ex.Message}",
                 "Import failed", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
@@ -759,7 +759,7 @@ public partial class MainViewModel : ObservableObject
         var suffix = failures.Count > shown.Count
             ? $"{Environment.NewLine}{Environment.NewLine}+{failures.Count - shown.Count} more."
             : string.Empty;
-        MessageBox.Show(Application.Current.MainWindow,
+        ThemedMessageDialog.Show(Application.Current.MainWindow,
             string.Join(Environment.NewLine, shown) + suffix,
             caption,
             MessageBoxButton.OK,
@@ -812,7 +812,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Export failed: {ex.Message}";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Could not write the export:\n\n{ex.Message}",
                 "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
@@ -905,7 +905,7 @@ public partial class MainViewModel : ObservableObject
         }
         if (_settings.ConfirmDestructiveActions)
         {
-            var ok = MessageBox.Show(Application.Current.MainWindow,
+            var ok = ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Undo {entry.Op}: {entry.Label}?",
                 "Undo",
                 MessageBoxButton.OKCancel,
@@ -979,7 +979,7 @@ public partial class MainViewModel : ObservableObject
     {
         if (_settings.ConfirmDestructiveActions)
         {
-            var ok = MessageBox.Show(Application.Current.MainWindow,
+            var ok = ThemedMessageDialog.Show(Application.Current.MainWindow,
                 message, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (ok != MessageBoxResult.OK) return;
         }
@@ -1040,7 +1040,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Clear failed: {ex.Message}";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Could not clear contacts:\n\n{ex.Message}",
                 title,
                 MessageBoxButton.OK,
@@ -1136,7 +1136,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Cleanup failed: {ex.Message}";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Could not finish cleanup:\n\n{ex.Message}",
                 "Cleanup",
                 MessageBoxButton.OK,
@@ -1162,7 +1162,7 @@ public partial class MainViewModel : ObservableObject
         }
         if (_settings.ConfirmDestructiveActions)
         {
-            var ok = MessageBox.Show(Application.Current.MainWindow,
+            var ok = ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Auto-merge {plan.Plans.Count} group(s)?  Each merge is rollback-able via undo.",
                 "Auto-merge",
                 MessageBoxButton.OKCancel,
@@ -1203,7 +1203,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Auto-merge failed: {ex.Message}";
-            MessageBox.Show(Application.Current.MainWindow,
+            ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Could not finish auto-merge:\n\n{ex.Message}",
                 "Auto-merge",
                 MessageBoxButton.OK,

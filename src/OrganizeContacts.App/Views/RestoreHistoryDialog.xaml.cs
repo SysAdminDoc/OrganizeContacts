@@ -40,14 +40,14 @@ public partial class RestoreHistoryDialog : Window
     {
         if (SnapshotList.SelectedItem is null)
         {
-            MessageBox.Show(this, "Select a snapshot first.", "Restore",
+            ThemedMessageDialog.Show(this, "Select a snapshot first.", "Restore",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var item = (dynamic)SnapshotList.SelectedItem;
         Guid id = item.Id;
 
-        var ok = MessageBox.Show(this,
+        var ok = ThemedMessageDialog.Show(this,
             $"Restore snapshot {item.Label}?\n\nContacts created by this import will be removed and prior state restored.",
             "Restore",
             MessageBoxButton.OKCancel,
@@ -61,7 +61,7 @@ public partial class RestoreHistoryDialog : Window
         }
         else
         {
-            MessageBox.Show(this, "Snapshot not found.", "Restore", MessageBoxButton.OK, MessageBoxImage.Error);
+            ThemedMessageDialog.Show(this, "Snapshot not found.", "Restore", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

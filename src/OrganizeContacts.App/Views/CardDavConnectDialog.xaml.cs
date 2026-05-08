@@ -29,14 +29,14 @@ public partial class CardDavConnectDialog : Window
         if (_discovering) return;
         if (string.IsNullOrWhiteSpace(ServerUrl))
         {
-            MessageBox.Show(this, "Enter a server URL first.", "CardDAV",
+            ThemedMessageDialog.Show(this, "Enter a server URL first.", "CardDAV",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         if (!System.Uri.TryCreate(ServerUrl, System.UriKind.Absolute, out var uri) ||
             (uri.Scheme != System.Uri.UriSchemeHttp && uri.Scheme != System.Uri.UriSchemeHttps))
         {
-            MessageBox.Show(this, "Server URL must start with http:// or https://", "CardDAV",
+            ThemedMessageDialog.Show(this, "Server URL must start with http:// or https://", "CardDAV",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -52,11 +52,11 @@ public partial class CardDavConnectDialog : Window
             var books = await client.DiscoverAddressBooksAsync();
             BooksList.ItemsSource = books;
             if (books.Count == 0)
-                MessageBox.Show(this, "No address books found.", "CardDAV", MessageBoxButton.OK, MessageBoxImage.Information);
+            ThemedMessageDialog.Show(this, "No address books found.", "CardDAV", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (System.Exception ex)
         {
-            MessageBox.Show(this, $"Discovery failed: {ex.Message}", "CardDAV",
+            ThemedMessageDialog.Show(this, $"Discovery failed: {ex.Message}", "CardDAV",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -71,7 +71,7 @@ public partial class CardDavConnectDialog : Window
     {
         if (SelectedBook is null)
         {
-            MessageBox.Show(this, "Pick an address book first.", "CardDAV",
+            ThemedMessageDialog.Show(this, "Pick an address book first.", "CardDAV",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }

@@ -66,6 +66,19 @@
                       Content="Confirm before destructive actions (clear, merge, rollback)"
                       Margin="0,4,0,0"
                       Foreground="{StaticResource Subtext0Brush}" />
+
+            <TextBlock Text="Theme" Margin="0,18,0,4"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource Subtext1Brush}" />
+            <ComboBox x:Name="ThemeCombo" Width="180" HorizontalAlignment="Left"
+                      AutomationProperties.Name="Theme">
+                <ComboBoxItem Content="Mocha (dark)" />
+                <ComboBoxItem Content="Latte (light)" />
+            </ComboBox>
+            <TextBlock Foreground="{StaticResource Subtext0Brush}" FontSize="11"
+                       Margin="0,4,0,0"
+                       Text="Restart not required — theme switches on Save."
+                       TextWrapping="Wrap" />
         </StackPanel>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">

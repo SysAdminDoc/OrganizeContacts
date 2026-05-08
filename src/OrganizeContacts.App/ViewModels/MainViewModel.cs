@@ -28,9 +28,12 @@ public partial class MainViewModel : ObservableObject
     private readonly VCardImporter _vcard = new();
     private readonly GoogleCsvImporter _googleCsv = new();
     private readonly OutlookCsvImporter _outlookCsv = new();
+    private readonly LdifImporter _ldif = new();
+    private readonly JCardImporter _jcard = new();
     private readonly VCardWriter _vcardWriter = new();
     private readonly GoogleCsvWriter _googleCsvWriter = new();
     private readonly OutlookCsvWriter _outlookCsvWriter = new();
+    private readonly JCardWriter _jcardWriter = new();
     private readonly ContactRepository _repo;
     private readonly HistoryStore _history;
     private readonly RollbackService _rollback;
@@ -153,6 +156,12 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private async Task ImportOutlookCsvAsync() => await RunImport("Outlook CSV (*.csv)|*.csv|All files (*.*)|*.*", _outlookCsv, SourceKind.OutlookCsv);
+
+    [RelayCommand]
+    private async Task ImportLdifAsync() => await RunImport("LDIF (*.ldif)|*.ldif|All files (*.*)|*.*", _ldif, SourceKind.Thunderbird);
+
+    [RelayCommand]
+    private async Task ImportJCardAsync() => await RunImport("jCard (*.jcard;*.jcf;*.json)|*.jcard;*.jcf;*.json|All files (*.*)|*.*", _jcard, SourceKind.File);
 
     [RelayCommand]
     private async Task ImportCardDavAsync()
@@ -356,7 +365,7 @@ public partial class MainViewModel : ObservableObject
         var dlg = new SaveFileDialog
         {
             Title = "Export contacts",
-            Filter = "vCard 3.0 (*.vcf)|*.vcf|vCard 4.0 (*.vcf)|*.vcf|Google CSV (*.csv)|*.csv|Outlook CSV (*.csv)|*.csv",
+            Filter = "vCard 3.0 (*.vcf)|*.vcf|vCard 4.0 (*.vcf)|*.vcf|Google CSV (*.csv)|*.csv|Outlook CSV (*.csv)|*.csv|jCard (*.jcard)|*.jcard",
             FileName = "OrganizeContacts.vcf",
         };
         if (dlg.ShowDialog() != true) return;
@@ -379,6 +388,10 @@ public partial class MainViewModel : ObservableObject
                 await _outlookCsvWriter.WriteFileAsync(dlg.FileName, Contacts.ToList());
                 _history.Audit("export.outlookcsv", payload: $"file={dlg.FileName};count={Contacts.Count}");
                 break;
+            case 5:
+                await _jcardWriter.WriteFileAsync(dlg.FileName, Contacts.ToList());
+                _history.Audit("export.jcard", payload: $"file={dlg.FileName};count={Contacts.Count}");
+                break;
         }
         StatusMessage = $"Exported {Contacts.Count} contact(s) to {Path.GetFileName(dlg.FileName)}.";
     }
@@ -390,6 +403,7 @@ public partial class MainViewModel : ObservableObject
         if (dlg.ShowDialog() == true)
         {
             _settings.Save(_settingsPath);
+            App.ApplyTheme(_settings.Theme);
             _history.Audit("settings.save");
             StatusMessage = "Settings saved.  Re-import or rescan to apply.";
         }

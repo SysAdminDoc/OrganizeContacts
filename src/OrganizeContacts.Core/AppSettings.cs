@@ -15,6 +15,9 @@ public sealed class AppSettings
 
     public bool ConfirmDestructiveActions { get; set; } = true;
 
+    /// <summary>"Mocha" (default dark) or "Latte" (light).</summary>
+    public string Theme { get; set; } = "Mocha";
+
     public static AppSettings LoadOrDefault(string path)
     {
         if (!File.Exists(path)) return new AppSettings();

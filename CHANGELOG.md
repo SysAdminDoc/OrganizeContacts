@@ -31,6 +31,12 @@ Format breadth and migration round-trip.
 - Bound `ImportCardDavCommand` to a "CardDAV…" header button. Saved credentials prefill on next session via DPAPI vault.
 - 3 new xunit tests for CardDavClient parsing + discovery + listing (mocked HttpClient).
 - Total tests: 63 passing.
+- Added `LdifImporter` (Later#2): reads RFC 2849 v1 LDIF + Mozilla MAB attribute mapping (cn/sn/givenName/o/mail/mozillaSecondEmail/cellPhone/etc.).  2 new tests.
+- Added `JCardImporter` and `JCardWriter` (Later#7): RFC 7095 jCard read/write with type/parameter object support.  2 new tests.
+- Added "Import LDIF…" and "Import jCard…" header buttons; jCard joins the multi-format Save dialog.
+- Added `OrganizeContacts.Cli` project (Later#6): a headless `oc` binary with `convert`, `dedupe`, `cleanup`, `version`, `help` subcommands. Format detection is by extension, including auto-detection between Google CSV and Outlook CSV.
+- Added Catppuccin Latte (light theme) ResourceDictionary (F76). Theme picker landed in the Settings dialog; live theme switching via `App.ApplyTheme(string)`.
+- Total tests: 67 passing.
 
 ## v0.2.0 — 2026-05-07 (in-progress)
 

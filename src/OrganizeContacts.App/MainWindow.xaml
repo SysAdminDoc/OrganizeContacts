@@ -67,6 +67,16 @@
                             ToolTip="Connect to a CardDAV server (Nextcloud, Baikal, Radicale, iCloud, Fastmail) and import an address book"
                             AutomationProperties.Name="Connect to CardDAV server"
                             Margin="0,0,8,0" />
+                    <Button Content="Import LDIF…"
+                            Command="{Binding ImportLdifCommand}"
+                            ToolTip="Read a Thunderbird/Mozilla LDIF export"
+                            AutomationProperties.Name="Import LDIF"
+                            Margin="0,0,8,0" />
+                    <Button Content="Import jCard…"
+                            Command="{Binding ImportJCardCommand}"
+                            ToolTip="Read a jCard (RFC 7095) JSON file"
+                            AutomationProperties.Name="Import jCard"
+                            Margin="0,0,8,0" />
                     <Button Content="Export…"
                             Command="{Binding ExportVCardCommand}"
                             ToolTip="Ctrl+E · Write the current contacts to a .vcf file"

@@ -267,7 +267,7 @@ Tiers:
    - Novelty: leapfrog for OSS.
    - Justification: Outlook import is strategically valuable, but parser and licensing risks are too high for the first stabilization slice.
 
-2. Thunderbird/CardBook/LDIF/MAB migration helpers.
+2. [x] Thunderbird/CardBook/LDIF/MAB migration helpers. *(v0.3.0 - LdifImporter handles RFC 2849 v1 LDIF + Mozilla MAB attribute mapping)*
    - Sources: L01, L02, S10, S18-S20, S41.
    - Impact 3, effort 4, risk medium.
    - Dependencies: robust vCard and CSV path.
@@ -295,14 +295,14 @@ Tiers:
    - Novelty: leapfrog.
    - Justification: valuable after built-in formats stabilize; premature plugins would fossilize unstable contracts.
 
-6. CLI/headless cleanup pipeline.
+6. [x] CLI/headless cleanup pipeline. *(v0.3.0 - `oc` CLI binary at src/OrganizeContacts.Cli with convert/dedupe/cleanup commands across vCard/CSV/LDIF/jCard)*
    - Sources: S21-S24, S28.
    - Impact 3, effort 4, risk medium.
    - Dependencies: stable core services.
    - Novelty: parity.
    - Justification: power users and support workflows benefit from scripts, but the desktop merge UI is the primary product.
 
-7. jCard and JSContact import/export.
+7. [x] jCard and JSContact import/export. *(v0.3.0 - JCardImporter/JCardWriter for RFC 7095. JSContact (RFC 9553) is a closely-related newer format and is on the v0.4 backlog.)*
    - Sources: S03, S04, S67.
    - Impact 3, effort 4, risk medium.
    - Dependencies: vCard 4.0 model.
@@ -463,7 +463,7 @@ Abbreviations: I = impact, E = effort, R = risk, N = novelty. Fit is "Y", "N", o
 | F73 | Performance benchmarks | performance | common | S51-S53 | Y | 3 | 3 | Low | scorer | Parity | Later | Useful after algorithm stabilizes. |
 | F74 | UI virtualization for large books | performance | common desktop | S17, S20, S35 | Y | 3 | 3 | Low | persistence | Parity | Later | Needed when large imports are common. |
 | F75 | Accessibility keyboard/screen reader | accessibility | table stakes | S05, S20, S35 | Y | 4 | 3 | Low | UI | Parity | Now | Merge review must work without mouse. |
-| F76 | High contrast/light theme | accessibility, UX | common | S17, S62 | Y | 3 | 3 | Low | theme tokens | Parity | Next | Current app is dark-only. |
+| F76 | High contrast/light theme | accessibility, UX | common | S17, S62 | Y | 3 | 3 | Low | theme tokens | Parity | Next | Current app is dark-only. *(v0.3.0 - Catppuccin Latte theme + Settings picker; live theme switch.)* |
 | F77 | Localization framework | i18n | common | L02, S17, S27, S30 | Y | 3 | 4 | Med | UI resources | Parity | Later | Data is global; UI can follow core. |
 | F78 | Docs: migration recipes | docs | table stakes | S21-S24, S29, S34 | Y | 4 | 2 | Low | features | Parity | Next | Users need source-specific guidance. |
 | F79 | In-app rule explanations/help | docs, UX | common | L01, S20, S22 | Y | 4 | 2 | Low | scorer | Leapfrog | Now | Transparency must be visible in product. |

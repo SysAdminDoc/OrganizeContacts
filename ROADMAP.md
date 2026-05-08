@@ -202,14 +202,14 @@ Tiers:
    - Novelty: parity.
    - Justification: users need a clean output artifact they can import elsewhere without lock-in.
 
-3. Batch cleanup: intra-contact dedupe, normalize names, dedupe phones/emails/URLs, and bulk regex edit.
+3. [x] Batch cleanup: intra-contact dedupe, normalize names, dedupe phones/emails/URLs, and bulk regex edit. *(v0.3.0 - BatchCleanup service + CleanupDialog with snapshot capture)*
    - Sources: L02, S20-S22, S35, S46.
    - Impact 4, effort 3, risk medium.
    - Dependencies: undo journal and preview.
    - Novelty: parity.
    - Justification: many duplicates are duplicated fields inside a single contact, not separate cards.
 
-4. Source-aware auto-merge for equivalent/subset records only.
+4. [x] Source-aware auto-merge for equivalent/subset records only. *(v0.3.0 - AutoMergeService picks richest record as primary; only merges when secondary is a strict info-subset and confidence ≥ AutoMergeThreshold)*
    - Sources: S20, S22, S32, S35.
    - Impact 4, effort 4, risk high.
    - Dependencies: side-by-side merge, undo, confidence calibration.

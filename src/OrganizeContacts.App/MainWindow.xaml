@@ -72,6 +72,16 @@
                             ToolTip="Ctrl+R · Re-run the duplicate scan"
                             AutomationProperties.Name="Rescan duplicates"
                             Margin="0,0,8,0" />
+                    <Button Content="Cleanup…"
+                            Command="{Binding RunCleanupCommand}"
+                            ToolTip="Dedupe phones/emails/urls within each contact, normalize, regex edit"
+                            AutomationProperties.Name="Run batch cleanup"
+                            Margin="0,0,8,0" />
+                    <Button Content="Auto-merge"
+                            Command="{Binding AutoMergeCommand}"
+                            ToolTip="Auto-merge groups whose secondaries are subsets of the primary"
+                            AutomationProperties.Name="Auto-merge subset duplicates"
+                            Margin="0,0,8,0" />
                     <Button Content="Undo"
                             Command="{Binding UndoLastCommand}"
                             ToolTip="Ctrl+Z · Undo the most recent merge"

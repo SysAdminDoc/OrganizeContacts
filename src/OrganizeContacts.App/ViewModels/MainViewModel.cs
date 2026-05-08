@@ -8,6 +8,7 @@ using OrganizeContacts.App.Views;
 using OrganizeContacts.Core;
 using OrganizeContacts.Core.Dedup;
 using OrganizeContacts.Core.Importers;
+using OrganizeContacts.Core.Cleanup;
 using OrganizeContacts.Core.Merge;
 using OrganizeContacts.Core.Models;
 using OrganizeContacts.Core.Normalize;
@@ -30,6 +31,7 @@ public partial class MainViewModel : ObservableObject
     private readonly HistoryStore _history;
     private readonly RollbackService _rollback;
     private readonly MergeEngine _mergeEngine = new();
+    private readonly AutoMergeService _autoMerge = new();
     private readonly EmailCanonicalizer _emailCanon = new();
     private readonly AppSettings _settings;
     private readonly PhoneNormalizer _phoneNormalizer;
@@ -337,6 +339,82 @@ public partial class MainViewModel : ObservableObject
         Duplicates.Clear();
         StatusMessage = "Cleared (soft-delete).  Use Restore History to roll back.";
         _history.Audit("contacts.clear");
+    }
+
+    [RelayCommand]
+    private void RunCleanup()
+    {
+        if (Contacts.Count == 0) { StatusMessage = "Nothing to clean."; return; }
+        var dlg = new CleanupDialog { Owner = Application.Current.MainWindow };
+        if (dlg.ShowDialog() != true) return;
+
+        var importId = Guid.NewGuid();
+        // Snapshot every contact before mutating so cleanup is rollback-able.
+        _rollback.CaptureForImport(importId, Contacts.Select(JsonClone).ToList(), $"before cleanup");
+
+        var cleaner = new BatchCleanup(_phoneNormalizer, _emailCanon);
+        var report = cleaner.Run(
+            Contacts,
+            dedupePhones: dlg.DedupePhones,
+            dedupeEmails: dlg.DedupeEmails,
+            dedupeUrls: dlg.DedupeUrls,
+            dedupeCategories: dlg.DedupeCategories,
+            normalizePhones: dlg.NormalizePhones,
+            canonicalizeEmails: dlg.CanonicalizeEmails,
+            regexEdits: dlg.Regex is null ? null : new[] { dlg.Regex });
+
+        using var tx = _repo.BeginTransaction();
+        foreach (var c in Contacts) _repo.UpdateContact(c, tx);
+        tx.Commit();
+        _history.Audit("cleanup.run", payload: report.Summary);
+        RescanDuplicates();
+        StatusMessage = report.Summary;
+    }
+
+    [RelayCommand]
+    private void AutoMerge()
+    {
+        if (Duplicates.Count == 0) { StatusMessage = "No duplicates."; return; }
+        var rules = GetMatchRules();
+        var plan = _autoMerge.Plan(Duplicates, rules.AutoMergeThreshold);
+        if (plan.Plans.Count == 0)
+        {
+            StatusMessage = $"Auto-merge planned 0 / {Duplicates.Count} groups (need ≥ {rules.AutoMergeThreshold:P0} confidence + subset secondaries).";
+            return;
+        }
+        if (_settings.ConfirmDestructiveActions)
+        {
+            var ok = MessageBox.Show(Application.Current.MainWindow,
+                $"Auto-merge {plan.Plans.Count} group(s)?  Each merge is rollback-able via undo.",
+                "Auto-merge",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question);
+            if (ok != MessageBoxResult.OK) return;
+        }
+
+        var merged = 0;
+        foreach (var p in plan.Plans)
+        {
+            var result = _mergeEngine.Apply(p);
+            using var tx = _repo.BeginTransaction();
+            _repo.UpdateContact(result.Survivor, tx);
+            foreach (var sec in result.RemovedSecondaries) _repo.SoftDeleteContact(sec.Id, tx);
+            tx.Commit();
+            _history.RecordUndo(
+                "merge",
+                new { primary = result.Survivor.Id, removed = result.RemovedSecondaries.Select(c => c.Id) },
+                new { restored = result.RemovedSecondaries.Select(c => c.Id) },
+                $"auto-merge {result.Survivor.DisplayName}");
+            merged++;
+        }
+        ReloadFromStore();
+        StatusMessage = $"Auto-merged {merged} group(s).  {plan.Skipped} skipped for manual review.";
+    }
+
+    private static Contact JsonClone(Contact src)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(src);
+        return System.Text.Json.JsonSerializer.Deserialize<Contact>(json)!;
     }
 
     [RelayCommand]

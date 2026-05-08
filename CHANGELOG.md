@@ -13,6 +13,11 @@ Format breadth and migration round-trip.
 - Multi-format export: vCard 3.0 / vCard 4.0 / Google CSV / Outlook CSV from the Save dialog.
 - 5 new xunit tests cover CSV import, round-trip, and quoted-field decoding (total: 46 passing).
 - Wired `ImportGoogleCsvCommand` + `ImportOutlookCsvCommand` into MainViewModel (preview → snapshot → commit, same as vCard).
+- Added `BatchCleanup` service (intra-contact dedupe of phones/emails/URLs/categories, normalize-to-E.164, email canonicalization, regex find/replace across name/org/title/notes/email/phone-raw) and a `CleanupDialog` UI.
+- Added `AutoMergeService` (Next#4): picks the richest record as primary, only merges when every secondary is an info-subset and the duplicate group's confidence ≥ AutoMergeThreshold.
+- Cleanup runs are rollback-able via an automatically-captured pre-mutation snapshot.
+- Added "Cleanup…" and "Auto-merge" header buttons.
+- 6 new xunit tests cover BatchCleanup + AutoMergeService (total: 52 passing).
 
 ## v0.2.0 — 2026-05-07 (in-progress)
 

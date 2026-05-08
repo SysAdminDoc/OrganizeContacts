@@ -34,6 +34,7 @@
     <SolidColorBrush x:Key="Surface1Brush" Color="{StaticResource Surface1}" />
     <SolidColorBrush x:Key="Surface2Brush" Color="{StaticResource Surface2}" />
     <SolidColorBrush x:Key="Overlay0Brush" Color="{StaticResource Overlay0}" />
+    <SolidColorBrush x:Key="Overlay1Brush" Color="{StaticResource Overlay1}" />
     <SolidColorBrush x:Key="Subtext0Brush" Color="{StaticResource Subtext0}" />
     <SolidColorBrush x:Key="Subtext1Brush" Color="{StaticResource Subtext1}" />
     <SolidColorBrush x:Key="TextBrush"      Color="{StaticResource Text}" />
@@ -42,108 +43,5 @@
     <SolidColorBrush x:Key="DangerBrush"    Color="{StaticResource Red}" />
     <SolidColorBrush x:Key="WarningBrush"   Color="{StaticResource Peach}" />
     <SolidColorBrush x:Key="SuccessBrush"   Color="{StaticResource Green}" />
-
-    <Style TargetType="{x:Type Window}">
-        <Setter Property="Background" Value="{StaticResource BaseBrush}" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="FontFamily" Value="Segoe UI" />
-        <Setter Property="FontSize" Value="13" />
-    </Style>
-
-    <Style TargetType="{x:Type TextBlock}">
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-
-    <Style TargetType="{x:Type TextBox}">
-        <Setter Property="Background" Value="{StaticResource Surface0Brush}" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource Surface2Brush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="8,5" />
-        <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}" />
-        <Setter Property="SelectionBrush" Value="{StaticResource AccentBrush}" />
-        <Setter Property="MinHeight" Value="30" />
-    </Style>
-
-    <Style TargetType="{x:Type Button}">
-        <Setter Property="Background" Value="{StaticResource Surface1Brush}" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource Surface2Brush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="14,6" />
-        <Setter Property="MinHeight" Value="32" />
-        <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="{x:Type Button}">
-                    <Border x:Name="Bd"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="6"
-                            Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Surface2Brush}" />
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                        </Trigger>
-                        <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentBrush}" />
-                            <Setter Property="Foreground" Value="{StaticResource BaseBrush}" />
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.45" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
-    <Style x:Key="AccentButton" TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
-        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-        <Setter Property="Foreground" Value="{StaticResource BaseBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-
-    <Style TargetType="{x:Type ListBox}">
-        <Setter Property="Background" Value="{StaticResource MantleBrush}" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource Surface0Brush}" />
-        <Setter Property="BorderThickness" Value="1" />
-    </Style>
-
-    <Style TargetType="{x:Type ListBoxItem}">
-        <Setter Property="Padding" Value="10,8" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0,0,0,1" />
-        <Setter Property="BorderBrush" Value="{StaticResource Surface0Brush}" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="{x:Type ListBoxItem}">
-                    <Border x:Name="Bd"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            Padding="{TemplateBinding Padding}">
-                        <ContentPresenter />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Surface0Brush}" />
-                        </Trigger>
-                        <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Surface1Brush}" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
 
 </ResourceDictionary>

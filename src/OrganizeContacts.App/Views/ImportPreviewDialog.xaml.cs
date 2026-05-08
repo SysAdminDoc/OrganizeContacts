@@ -16,6 +16,9 @@ public partial class ImportPreviewDialog : Window
         SummaryText.Text = report.Summary;
         Grid.ItemsSource = report.Items.Select(i => new
         {
+            File = string.IsNullOrWhiteSpace(i.Incoming.SourceFile)
+                ? ""
+                : Path.GetFileName(i.Incoming.SourceFile),
             Action = i.Action.ToString(),
             Name = i.Incoming.DisplayName,
             Uid = i.Incoming.Uid ?? "",

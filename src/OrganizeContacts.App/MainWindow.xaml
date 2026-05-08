@@ -4,8 +4,8 @@
         xmlns:vm="clr-namespace:OrganizeContacts.App.ViewModels"
         xmlns:m="clr-namespace:OrganizeContacts.Core.Models;assembly=OrganizeContacts.Core"
         Title="OrganizeContacts"
-        Height="760" Width="1240"
-        MinHeight="560" MinWidth="980"
+        Height="800" Width="1320"
+        MinHeight="620" MinWidth="1040"
         WindowStartupLocation="CenterScreen">
 
     <Window.DataContext>
@@ -14,239 +14,403 @@
 
     <Window.InputBindings>
         <KeyBinding Key="O" Modifiers="Control" Command="{Binding ImportVCardCommand}" />
+        <KeyBinding Key="O" Modifiers="Control+Shift" Command="{Binding ImportFolderCommand}" />
         <KeyBinding Key="E" Modifiers="Control" Command="{Binding ExportVCardCommand}" />
         <KeyBinding Key="R" Modifiers="Control" Command="{Binding RescanDuplicatesCommand}" />
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoLastCommand}" />
         <KeyBinding Key="OemComma" Modifiers="Control" Command="{Binding OpenSettingsCommand}" />
     </Window.InputBindings>
 
-    <Grid>
+    <Grid Background="{DynamicResource BaseBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Border Grid.Row="0" Background="{StaticResource MantleBrush}" Padding="20,14"
-                BorderBrush="{StaticResource Surface0Brush}" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0"
+                Background="{DynamicResource CrustBrush}"
+                BorderBrush="{DynamicResource Surface0Brush}"
+                BorderThickness="0,0,0,1"
+                Padding="20,16,20,12">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Ellipse Width="14" Height="14" Fill="{StaticResource AccentBrush}" Margin="0,0,10,0" />
-                    <TextBlock Text="OrganizeContacts"
-                               FontSize="18" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextBrush}" />
-                    <TextBlock Text="v0.3.1"
-                               Margin="10,3,0,0"
-                               FontSize="11"
-                               Foreground="{StaticResource Subtext0Brush}" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button Content="Import vCard…"
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Width="16" Height="16"
+                                Background="{DynamicResource AccentBrush}"
+                                CornerRadius="8"
+                                Margin="0,0,12,0" />
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="OrganizeContacts"
+                                           FontSize="19"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="v0.3.1"
+                                           Margin="10,4,0,0"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource Subtext0Brush}" />
+                            </StackPanel>
+                            <TextBlock Text="Local-first contact cleanup, dedupe, and rollback"
+                                       Foreground="{DynamicResource Subtext0Brush}"
+                                       FontSize="12"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Border Background="{DynamicResource MantleBrush}"
+                                BorderBrush="{DynamicResource Surface0Brush}"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                Padding="10,5"
+                                Margin="0,0,8,0">
+                            <TextBlock Text="Offline by default" Style="{StaticResource PillText}" />
+                        </Border>
+                        <Border Background="{DynamicResource MantleBrush}"
+                                BorderBrush="{DynamicResource Surface0Brush}"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                Padding="10,5">
+                            <TextBlock Text="Rollback-aware imports" Style="{StaticResource PillText}" />
+                        </Border>
+                    </StackPanel>
+                </Grid>
+
+                <WrapPanel Grid.Row="1"
+                           Margin="0,14,0,0"
+                           VerticalAlignment="Center">
+                    <Button Content="Import folder..."
                             Style="{StaticResource AccentButton}"
+                            Command="{Binding ImportFolderCommand}"
+                            ToolTip="Ctrl+Shift+O - import every supported contact file in a folder"
+                            AutomationProperties.Name="Import a folder of contact files"
+                            Margin="0,0,8,8" />
+                    <Button Content="Import vCard..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding ImportVCardCommand}"
-                            ToolTip="Ctrl+O · Read a .vcf file with preview"
-                            AutomationProperties.Name="Import vCard file"
-                            Margin="0,0,8,0" />
-                    <Button Content="Import Google CSV…"
+                            ToolTip="Ctrl+O - read a .vcf or .vcard file with preview"
+                            AutomationProperties.Name="Import vCard file" />
+                    <Button Content="Google CSV..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding ImportGoogleCsvCommand}"
                             ToolTip="Read a Google Contacts CSV export"
-                            AutomationProperties.Name="Import Google CSV"
-                            Margin="0,0,8,0" />
-                    <Button Content="Import Outlook CSV…"
+                            AutomationProperties.Name="Import Google CSV" />
+                    <Button Content="Outlook CSV..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding ImportOutlookCsvCommand}"
                             ToolTip="Read an Outlook for Windows CSV export"
-                            AutomationProperties.Name="Import Outlook CSV"
-                            Margin="0,0,8,0" />
-                    <Button Content="CardDAV…"
+                            AutomationProperties.Name="Import Outlook CSV" />
+                    <Button Content="CardDAV..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding ImportCardDavCommand}"
-                            ToolTip="Connect to a CardDAV server (Nextcloud, Baikal, Radicale, iCloud, Fastmail) and import an address book"
-                            AutomationProperties.Name="Connect to CardDAV server"
-                            Margin="0,0,8,0" />
-                    <Button Content="Import LDIF…"
+                            ToolTip="Connect to a CardDAV server and import an address book"
+                            AutomationProperties.Name="Connect to CardDAV server" />
+                    <Button Content="LDIF..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding ImportLdifCommand}"
                             ToolTip="Read a Thunderbird/Mozilla LDIF export"
-                            AutomationProperties.Name="Import LDIF"
-                            Margin="0,0,8,0" />
-                    <Button Content="Import jCard…"
+                            AutomationProperties.Name="Import LDIF" />
+                    <Button Content="jCard..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding ImportJCardCommand}"
                             ToolTip="Read a jCard (RFC 7095) JSON file"
-                            AutomationProperties.Name="Import jCard"
-                            Margin="0,0,8,0" />
-                    <Button Content="Export…"
+                            AutomationProperties.Name="Import jCard" />
+                    <Button Content="Export..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding ExportVCardCommand}"
-                            ToolTip="Ctrl+E · Write the current contacts to a .vcf file"
-                            AutomationProperties.Name="Export contacts to vCard"
-                            Margin="0,0,8,0" />
+                            ToolTip="Ctrl+E - write the current contacts to a file"
+                            AutomationProperties.Name="Export contacts" />
                     <Button Content="Rescan"
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding RescanDuplicatesCommand}"
-                            ToolTip="Ctrl+R · Re-run the duplicate scan"
-                            AutomationProperties.Name="Rescan duplicates"
-                            Margin="0,0,8,0" />
-                    <Button Content="Cleanup…"
+                            ToolTip="Ctrl+R - re-run the duplicate scan"
+                            AutomationProperties.Name="Rescan duplicates" />
+                    <Button Content="Cleanup..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding RunCleanupCommand}"
-                            ToolTip="Dedupe phones/emails/urls within each contact, normalize, regex edit"
-                            AutomationProperties.Name="Run batch cleanup"
-                            Margin="0,0,8,0" />
+                            ToolTip="Normalize and dedupe fields within each contact"
+                            AutomationProperties.Name="Run batch cleanup" />
                     <Button Content="Auto-merge"
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding AutoMergeCommand}"
                             ToolTip="Auto-merge groups whose secondaries are subsets of the primary"
-                            AutomationProperties.Name="Auto-merge subset duplicates"
-                            Margin="0,0,8,0" />
+                            AutomationProperties.Name="Auto-merge subset duplicates" />
                     <Button Content="Undo"
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding UndoLastCommand}"
-                            ToolTip="Ctrl+Z · Undo the most recent merge"
-                            AutomationProperties.Name="Undo last merge"
-                            Margin="0,0,8,0" />
-                    <Button Content="History…"
+                            ToolTip="Ctrl+Z - undo the most recent merge"
+                            AutomationProperties.Name="Undo last merge" />
+                    <Button Content="History..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding OpenRestoreHistoryCommand}"
-                            ToolTip="Imports + rollback snapshots"
-                            AutomationProperties.Name="Open restore history"
-                            Margin="0,0,8,0" />
-                    <Button Content="Settings…"
+                            ToolTip="Review imports and rollback snapshots"
+                            AutomationProperties.Name="Open restore history" />
+                    <Button Content="Settings..."
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding OpenSettingsCommand}"
-                            ToolTip="Ctrl+, · Region, match profile, canonicalization"
-                            AutomationProperties.Name="Open settings"
-                            Margin="0,0,8,0" />
+                            ToolTip="Ctrl+, - region, match profile, canonicalization, theme"
+                            AutomationProperties.Name="Open settings" />
                     <Button Content="Clear visible"
+                            Style="{StaticResource ToolbarButton}"
                             Command="{Binding ClearAllCommand}"
-                            ToolTip="Soft-delete the contacts that match the current search/queue filter (recoverable via Restore History)"
+                            ToolTip="Soft-delete contacts matching the current search and queue filter"
                             AutomationProperties.Name="Soft-delete the visible contacts" />
-                </StackPanel>
+                </WrapPanel>
             </Grid>
         </Border>
 
-        <!-- Body -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" Margin="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" />
-                <ColumnDefinition Width="3" />
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="3*" />
             </Grid.ColumnDefinitions>
 
-            <!-- Contacts -->
-            <Border Grid.Column="0" Padding="14">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top"
-                               FontSize="14" FontWeight="SemiBold"
-                               Margin="0,0,0,8">
-                        <Run Text="Contacts: " />
-                        <Run Text="{Binding Contacts.Count, Mode=OneWay}"
-                             Foreground="{StaticResource AccentAltBrush}" />
-                    </TextBlock>
-                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <ComboBox DockPanel.Dock="Right"
-                                  Width="180"
+            <Border Grid.Column="0"
+                    Style="{StaticResource SectionPanel}"
+                    Padding="14">
+                <DockPanel LastChildFill="True">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Contacts"
+                                       FontSize="16"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="Imported people and source metadata"
+                                       Foreground="{DynamicResource Subtext0Brush}"
+                                       FontSize="12"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Border Grid.Column="1"
+                                Background="{DynamicResource BaseBrush}"
+                                BorderBrush="{DynamicResource Surface0Brush}"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                Padding="10,5"
+                                VerticalAlignment="Center">
+                            <TextBlock Style="{StaticResource PillText}">
+                                <Run Text="{Binding Contacts.Count, Mode=OneWay}" />
+                                <Run Text=" contacts" />
+                            </TextBlock>
+                        </Border>
+                    </Grid>
+
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="200" />
+                        </Grid.ColumnDefinitions>
+
+                        <Grid>
+                            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                     AutomationProperties.Name="Search contacts"
+                                     ToolTip="Search by name, organization, email, phone, notes" />
+                            <TextBlock Text="Search contacts, emails, phones..."
+                                       Foreground="{DynamicResource Overlay1Brush}"
+                                       Margin="12,0,0,0"
+                                       IsHitTestVisible="False">
+                                <TextBlock.Style>
+                                    <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Setter Property="VerticalAlignment" Value="Center" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding SearchText}" Value="">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <ComboBox Grid.Column="1"
                                   ItemsSource="{Binding ReviewQueues}"
                                   SelectedItem="{Binding SelectedQueue}"
                                   AutomationProperties.Name="Review queue filter"
-                                  Margin="6,0,0,0" />
-                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                                 AutomationProperties.Name="Search contacts"
-                                 ToolTip="Search by name, organization, email, phone, notes" />
-                    </DockPanel>
-                    <Border Background="{StaticResource MantleBrush}"
-                            BorderBrush="{StaticResource Surface0Brush}" BorderThickness="1"
-                            CornerRadius="6">
+                                  Margin="10,0,0,0" />
+                    </Grid>
+
+                    <Grid>
                         <ListBox ItemsSource="{Binding ContactsView}"
                                  SelectedItem="{Binding SelectedContact}"
-                                 Background="Transparent" BorderThickness="0"
+                                 Background="Transparent"
+                                 BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingPanel.IsVirtualizing="True"
                                  AutomationProperties.Name="Contacts list">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="{x:Type m:Contact}">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
-                                        <TextBlock Foreground="{StaticResource Subtext0Brush}"
-                                                   FontSize="11">
+                                        <TextBlock Text="{Binding DisplayName}"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="13" />
+                                        <TextBlock Foreground="{DynamicResource Subtext0Brush}"
+                                                   FontSize="12"
+                                                   Margin="0,3,0,0">
                                             <Run Text="{Binding Organization}" />
-                                            <Run Text="  ·  " />
+                                            <Run Text="  -  " />
                                             <Run Text="{Binding SourceFormat}" />
+                                        </TextBlock>
+                                        <TextBlock Foreground="{DynamicResource Overlay1Brush}"
+                                                   FontSize="11"
+                                                   Margin="0,3,0,0">
+                                            <Run Text="{Binding Emails.Count, Mode=OneWay}" />
+                                            <Run Text=" emails  -  " />
+                                            <Run Text="{Binding Phones.Count, Mode=OneWay}" />
+                                            <Run Text=" phones" />
                                         </TextBlock>
                                     </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                    </Border>
+
+                        <Border Background="{DynamicResource MantleBrush}"
+                                IsHitTestVisible="False"
+                                Padding="28">
+                            <Border.Style>
+                                <Style TargetType="{x:Type Border}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Contacts.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        MaxWidth="360">
+                                <TextBlock Text="No contacts imported"
+                                           FontSize="17"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="Import one file or choose a folder to preview every supported contact file before anything is committed."
+                                           Foreground="{DynamicResource Subtext0Brush}"
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </DockPanel>
             </Border>
 
-            <GridSplitter Grid.Column="1" Width="3"
-                          Background="{StaticResource Surface0Brush}"
-                          HorizontalAlignment="Stretch" />
+            <GridSplitter Grid.Column="1"
+                          Width="8"
+                          HorizontalAlignment="Stretch"
+                          Margin="4,0" />
 
-            <!-- Duplicates -->
-            <Border Grid.Column="2" Padding="14">
-                <DockPanel>
-                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <TextBlock DockPanel.Dock="Left"
-                                   FontSize="14" FontWeight="SemiBold">
-                            <Run Text="Duplicate groups: " />
-                            <Run Text="{Binding Duplicates.Count, Mode=OneWay}"
-                                 Foreground="{StaticResource AccentBrush}" />
-                        </TextBlock>
-                        <Button DockPanel.Dock="Right"
-                                Content="Review &amp; merge…"
-                                Command="{Binding ReviewMergeCommand}"
-                                Style="{StaticResource AccentButton}"
-                                AutomationProperties.Name="Open merge review for selected group" />
-                    </DockPanel>
-                    <Border Background="{StaticResource MantleBrush}"
-                            BorderBrush="{StaticResource Surface0Brush}" BorderThickness="1"
-                            CornerRadius="6">
+            <Border Grid.Column="2"
+                    Style="{StaticResource SectionPanel}"
+                    Padding="14">
+                <DockPanel LastChildFill="True">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Duplicate review"
+                                       FontSize="16"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="Transparent match signals before merge"
+                                       Foreground="{DynamicResource Subtext0Brush}"
+                                       FontSize="12"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <Border Background="{DynamicResource BaseBrush}"
+                                    BorderBrush="{DynamicResource Surface0Brush}"
+                                    BorderThickness="1"
+                                    CornerRadius="12"
+                                    Padding="10,5"
+                                    Margin="0,0,10,0">
+                                <TextBlock Style="{StaticResource PillText}">
+                                    <Run Text="{Binding Duplicates.Count, Mode=OneWay}" />
+                                    <Run Text=" groups" />
+                                </TextBlock>
+                            </Border>
+                            <Button Content="Review &amp; merge..."
+                                    Command="{Binding ReviewMergeCommand}"
+                                    Style="{StaticResource AccentButton}"
+                                    AutomationProperties.Name="Open merge review for selected group" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid>
                         <ListBox ItemsSource="{Binding Duplicates}"
                                  SelectedItem="{Binding SelectedDuplicateGroup}"
-                                 Background="Transparent" BorderThickness="0"
+                                 Background="Transparent"
+                                 BorderThickness="0"
                                  HorizontalContentAlignment="Stretch"
                                  AutomationProperties.Name="Duplicate groups">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="{x:Type m:DuplicateGroup}">
                                     <StackPanel>
                                         <DockPanel>
-                                            <TextBlock DockPanel.Dock="Right"
-                                                       Foreground="{StaticResource Subtext0Brush}"
-                                                       FontSize="11">
-                                                <Run Text="× " />
-                                                <Run Text="{Binding Count, Mode=OneWay}" />
-                                                <Run Text="  ·  " />
-                                                <Run Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}"
-                                                     Foreground="{StaticResource AccentAltBrush}" />
-                                            </TextBlock>
+                                            <Border DockPanel.Dock="Right"
+                                                    Background="{DynamicResource BaseBrush}"
+                                                    BorderBrush="{DynamicResource Surface0Brush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="11"
+                                                    Padding="8,4"
+                                                    Margin="10,0,0,0">
+                                                <TextBlock Foreground="{DynamicResource Subtext1Brush}"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold">
+                                                    <Run Text="{Binding Count, Mode=OneWay}" />
+                                                    <Run Text=" contacts - " />
+                                                    <Run Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}"
+                                                         Foreground="{DynamicResource AccentAltBrush}" />
+                                                </TextBlock>
+                                            </Border>
                                             <TextBlock Text="{Binding MatchReason}"
-                                                       Foreground="{StaticResource AccentAltBrush}"
+                                                       Foreground="{DynamicResource AccentAltBrush}"
                                                        FontWeight="SemiBold"
-                                                       FontSize="12" />
+                                                       FontSize="13" />
                                         </DockPanel>
-                                        <ItemsControl ItemsSource="{Binding Members}" Margin="8,4,0,0">
+                                        <ItemsControl ItemsSource="{Binding Members}" Margin="8,6,0,0">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate DataType="{x:Type m:Contact}">
-                                                    <TextBlock Foreground="{StaticResource Subtext1Brush}"
+                                                    <TextBlock Foreground="{DynamicResource Subtext1Brush}"
                                                                FontSize="12">
-                                                        <Run Text="• " />
+                                                        <Run Text="- " />
                                                         <Run Text="{Binding DisplayName}" />
                                                         <Run Text="  " />
                                                         <Run Text="{Binding Organization}"
-                                                             Foreground="{StaticResource Overlay0Brush}" />
+                                                             Foreground="{DynamicResource Overlay1Brush}" />
                                                     </TextBlock>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
-                                        <ItemsControl ItemsSource="{Binding Signals}" Margin="8,4,0,0">
+                                        <ItemsControl ItemsSource="{Binding Signals}" Margin="8,6,0,0">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <TextBlock FontSize="11"
-                                                               Foreground="{StaticResource Overlay0Brush}">
-                                                        <Run Text="↳ " />
+                                                               Foreground="{DynamicResource Overlay1Brush}">
+                                                        <Run Text="Signal: " />
                                                         <Run Text="{Binding Label}"
-                                                             Foreground="{StaticResource SuccessBrush}" />
-                                                        <Run Text=" (+" />
+                                                             Foreground="{DynamicResource SuccessBrush}" />
+                                                        <Run Text=" +" />
                                                         <Run Text="{Binding Weight, StringFormat={}{0:0.00}}" />
-                                                        <Run Text=") " />
+                                                        <Run Text=" - " />
                                                         <Run Text="{Binding Detail}" />
                                                     </TextBlock>
                                                 </DataTemplate>
@@ -256,20 +420,76 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                    </Border>
+
+                        <Border Background="{DynamicResource MantleBrush}"
+                                IsHitTestVisible="False"
+                                Padding="28">
+                            <Border.Style>
+                                <Style TargetType="{x:Type Border}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Duplicates.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        MaxWidth="380">
+                                <TextBlock Text="No duplicate groups"
+                                           FontSize="17"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="After import, rescan runs automatically and shows match reasons, confidence, and merge candidates here."
+                                           Foreground="{DynamicResource Subtext0Brush}"
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </DockPanel>
             </Border>
         </Grid>
 
-        <!-- Status bar -->
-        <Border Grid.Row="2" Background="{StaticResource MantleBrush}"
-                BorderBrush="{StaticResource Surface0Brush}" BorderThickness="0,1,0,0"
-                Padding="14,6">
-            <TextBlock Text="{Binding StatusMessage}"
-                       Foreground="{StaticResource Subtext0Brush}"
-                       FontSize="12"
-                       AutomationProperties.LiveSetting="Polite"
-                       AutomationProperties.Name="Status message" />
+        <Border Grid.Row="2"
+                Background="{DynamicResource CrustBrush}"
+                BorderBrush="{DynamicResource Surface0Brush}"
+                BorderThickness="0,1,0,0"
+                Padding="16,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding StatusMessage}"
+                           Foreground="{DynamicResource Subtext0Brush}"
+                           FontSize="12"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="Status message" />
+                <Border Grid.Column="1"
+                        Background="{DynamicResource MantleBrush}"
+                        BorderBrush="{DynamicResource Surface0Brush}"
+                        BorderThickness="1"
+                        CornerRadius="11"
+                        Padding="9,4">
+                    <Border.Style>
+                        <Style TargetType="{x:Type Border}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="Working"
+                               Foreground="{DynamicResource AccentAltBrush}"
+                               FontSize="11"
+                               FontWeight="SemiBold" />
+                </Border>
+            </Grid>
         </Border>
     </Grid>
 </Window>

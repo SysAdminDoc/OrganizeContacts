@@ -30,6 +30,7 @@ public partial class MainViewModel : ObservableObject
     private readonly OutlookCsvImporter _outlookCsv = new();
     private readonly LdifImporter _ldif = new();
     private readonly JCardImporter _jcard = new();
+    private readonly ContactImportCatalog _importCatalog;
     private readonly VCardWriter _vcardWriter = new();
     private readonly GoogleCsvWriter _googleCsvWriter = new();
     private readonly OutlookCsvWriter _outlookCsvWriter = new();
@@ -77,13 +78,16 @@ public partial class MainViewModel : ObservableObject
     partial void OnSelectedQueueChanged(string value) => ContactsView.Refresh();
 
     [ObservableProperty]
-    private string _statusMessage = "Ready. Use Import to load a vCard (.vcf) file.";
+    private string _statusMessage = "Ready. Import a folder or choose an individual contact file to begin.";
 
     [ObservableProperty]
     private Contact? _selectedContact;
 
     [ObservableProperty]
     private DuplicateGroup? _selectedDuplicateGroup;
+
+    partial void OnSelectedDuplicateGroupChanged(DuplicateGroup? value) =>
+        ReviewMergeCommand.NotifyCanExecuteChanged();
 
     /// <summary>
     /// True while a background DB operation (reload, import, rescan above the threshold)
@@ -94,6 +98,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ImportVCardCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportFolderCommand))]
     [NotifyCanExecuteChangedFor(nameof(ImportGoogleCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ImportOutlookCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ImportLdifCommand))]
@@ -119,6 +124,14 @@ public partial class MainViewModel : ObservableObject
             "OrganizeContacts");
         _settingsPath = Path.Combine(_dataDir, "settings.json");
         _settings = AppSettings.LoadOrDefault(_settingsPath);
+        _importCatalog = new ContactImportCatalog(new[]
+        {
+            new ContactImportFormat(_vcard, SourceKind.File),
+            new ContactImportFormat(_googleCsv, SourceKind.GoogleCsv),
+            new ContactImportFormat(_outlookCsv, SourceKind.OutlookCsv),
+            new ContactImportFormat(_ldif, SourceKind.Thunderbird),
+            new ContactImportFormat(_jcard, SourceKind.File),
+        });
 
         _repo = new ContactRepository(Path.Combine(_dataDir, "contacts.sqlite"));
         _history = new HistoryStore(_repo);
@@ -228,6 +241,114 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportJCardAsync() => await RunImport("jCard (*.jcard;*.jcf;*.json)|*.jcard;*.jcf;*.json|All files (*.*)|*.*", _jcard, SourceKind.File);
+
+    [RelayCommand(CanExecute = nameof(NotBusy))]
+    private async Task ImportFolderAsync()
+    {
+        var dlg = new OpenFolderDialog
+        {
+            Title = "Import a folder of contact files",
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        var folder = dlg.FolderName;
+        var detected = _importCatalog.FindFiles(folder);
+        if (detected.Count == 0)
+        {
+            StatusMessage = $"{Path.GetFileName(folder)}: no supported contact files found.";
+            MessageBox.Show(Application.Current.MainWindow,
+                "No supported contact files were found in that folder.\n\nSupported formats: vCard, Google CSV, Outlook CSV, LDIF, and jCard.",
+                "Import folder", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        StatusMessage = $"Generating preview for {detected.Count} file(s) in {Path.GetFileName(folder)}...";
+        IsBusy = true;
+        var batches = new List<PendingImportBatch>();
+        var aggregate = new ImportPreviewReport();
+        var previewFailures = new List<string>();
+        try
+        {
+            foreach (var file in detected)
+            {
+                try
+                {
+                    var (source, report) = await PreviewImportFileAsync(
+                        file.FilePath,
+                        file.Format.Importer,
+                        file.Format.SourceKind);
+                    if (report.Items.Count == 0) continue;
+
+                    batches.Add(new PendingImportBatch(file.FilePath, source, report));
+                    foreach (var item in report.Items) aggregate.Items.Add(item);
+                }
+                catch (Exception ex)
+                {
+                    previewFailures.Add($"{Path.GetFileName(file.FilePath)}: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        if (aggregate.Items.Count == 0)
+        {
+            StatusMessage = $"{Path.GetFileName(folder)}: supported files parsed to 0 contacts.";
+            ShowImportFailures("Import folder", previewFailures);
+            return;
+        }
+
+        if (previewFailures.Count > 0)
+            ShowImportFailures("Some files could not be previewed", previewFailures);
+
+        var dialogTitle = $"{Path.GetFileName(folder)} ({batches.Count} file(s))";
+        var dialog = new ImportPreviewDialog(dialogTitle, aggregate) { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true)
+        {
+            StatusMessage = $"Folder import cancelled. {aggregate.Summary}";
+            return;
+        }
+
+        IsBusy = true;
+        var totals = new ImportCommitTotals();
+        var commitFailures = new List<string>();
+        try
+        {
+            foreach (var batch in batches)
+            {
+                try
+                {
+                    var result = CommitImportReport(
+                        batch.Source,
+                        batch.FilePath,
+                        batch.Report,
+                        dialog.CaptureSnapshot,
+                        "import.folder");
+                    totals.Add(result);
+                    totals.FilesCommitted++;
+                }
+                catch (Exception ex)
+                {
+                    commitFailures.Add($"{Path.GetFileName(batch.FilePath)}: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        RescanDuplicates();
+        if (commitFailures.Count > 0)
+            ShowImportFailures("Some files could not be committed", commitFailures);
+
+        StatusMessage =
+            $"{Path.GetFileName(folder)}: committed {totals.FilesCommitted}/{batches.Count} file(s), " +
+            $"+{totals.Added} new, ~{totals.Updated} updated, {totals.Skipped} skipped. " +
+            $"Total: {Contacts.Count}. Duplicate groups: {Duplicates.Count}.";
+    }
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportCardDavAsync()
@@ -381,22 +502,19 @@ public partial class MainViewModel : ObservableObject
         if (dlg.ShowDialog() != true) return;
 
         var fileName = dlg.FileName;
+        await RunImportFileAsync(fileName, importer, kind);
+    }
+
+    private async Task RunImportFileAsync(string fileName, IContactImporter importer, SourceKind kind)
+    {
         StatusMessage = $"Generating preview for {Path.GetFileName(fileName)}…";
 
         ImportPreviewReport report;
         ContactSource source;
+        IsBusy = true;
         try
         {
-            source = _repo.UpsertSource(new ContactSource
-            {
-                Kind = kind,
-                Label = Path.GetFileNameWithoutExtension(fileName),
-                FilePath = fileName,
-            });
-            if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
-
-            var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
-            report = await previewer.PreviewAsync(importer, fileName, source.Id);
+            (source, report) = await PreviewImportFileAsync(fileName, importer, kind);
         }
         catch (Exception ex)
         {
@@ -405,6 +523,10 @@ public partial class MainViewModel : ObservableObject
                 $"Could not read the file:\n\n{ex.Message}",
                 "Import failed", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
+        }
+        finally
+        {
+            IsBusy = false;
         }
 
         if (report.Items.Count == 0)
@@ -420,6 +542,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        IsBusy = true;
         var import = _repo.StartImport(new ImportRecord
         {
             SourceId = source.Id,
@@ -491,6 +614,10 @@ public partial class MainViewModel : ObservableObject
                 "Import failed", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
+        finally
+        {
+            IsBusy = false;
+        }
 
         // Commit succeeded — sync UI now.
         foreach (var c in pendingNew) Contacts.Add(c);
@@ -506,12 +633,132 @@ public partial class MainViewModel : ObservableObject
         import.ContactsUpdated = updated;
         import.ContactsSkipped = skipped;
         _repo.FinishImport(import);
-        _history.Audit("import.vcard", payload: $"file={fileName};added={added};updated={updated};skipped={skipped}");
+        _history.Audit("import.file", payload: $"file={fileName};format={importer.Name};added={added};updated={updated};skipped={skipped}");
 
         RescanDuplicates();
         StatusMessage =
             $"{Path.GetFileName(fileName)}: +{added} new, ~{updated} updated, {skipped} skipped. " +
             $"Total: {Contacts.Count}. Duplicate groups: {Duplicates.Count}.";
+    }
+
+    private async Task<(ContactSource Source, ImportPreviewReport Report)> PreviewImportFileAsync(
+        string fileName,
+        IContactImporter importer,
+        SourceKind kind)
+    {
+        var source = _repo.UpsertSource(new ContactSource
+        {
+            Kind = kind,
+            Label = Path.GetFileNameWithoutExtension(fileName),
+            FilePath = fileName,
+        });
+        if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
+
+        var previewer = new ImportPreviewer(_repo, _phoneNormalizer, _emailCanon);
+        var report = await previewer.PreviewAsync(importer, fileName, source.Id);
+        return (source, report);
+    }
+
+    private ImportCommitResult CommitImportReport(
+        ContactSource source,
+        string fileName,
+        ImportPreviewReport report,
+        bool captureSnapshot,
+        string auditOperation)
+    {
+        var import = _repo.StartImport(new ImportRecord
+        {
+            SourceId = source.Id,
+            FilePath = fileName,
+            Status = ImportStatus.Pending,
+        });
+
+        if (captureSnapshot)
+        {
+            var touched = report.Items
+                .Where(i => i.Existing is not null)
+                .Select(i => i.Existing!)
+                .ToList();
+            if (touched.Count > 0)
+                _rollback.CaptureForImport(import.Id, touched, $"before {Path.GetFileName(fileName)}");
+        }
+
+        var added = 0;
+        var updated = 0;
+        var skipped = 0;
+        var pendingNew = new List<Contact>();
+        var pendingUpdates = new List<Contact>();
+
+        try
+        {
+            using var tx = _repo.BeginTransaction();
+            foreach (var item in report.Items)
+            {
+                var c = item.Incoming;
+                c.SourceId = source.Id;
+                c.ImportId = import.Id;
+                StampSourceOnChildren(c, source.Id);
+
+                switch (item.Action)
+                {
+                    case ImportAction.New:
+                        _repo.InsertContact(c, tx);
+                        pendingNew.Add(c);
+                        added++;
+                        break;
+                    case ImportAction.UpdateNewer:
+                        if (item.Existing is not null) c.Id = item.Existing.Id;
+                        _repo.UpdateContact(c, tx);
+                        pendingUpdates.Add(c);
+                        updated++;
+                        break;
+                    default:
+                        skipped++;
+                        break;
+                }
+            }
+            tx.Commit();
+        }
+        catch (Exception ex)
+        {
+            import.FinishedAt = DateTimeOffset.UtcNow;
+            import.Status = ImportStatus.Failed;
+            import.Notes = ex.Message;
+            try { _repo.FinishImport(import); } catch { }
+            throw;
+        }
+
+        foreach (var c in pendingNew) Contacts.Add(c);
+        foreach (var c in pendingUpdates)
+        {
+            var idx = IndexOfContact(c.Id);
+            if (idx >= 0) Contacts[idx] = c;
+        }
+
+        import.FinishedAt = DateTimeOffset.UtcNow;
+        import.Status = ImportStatus.Committed;
+        import.ContactsCreated = added;
+        import.ContactsUpdated = updated;
+        import.ContactsSkipped = skipped;
+        _repo.FinishImport(import);
+        _history.Audit(auditOperation, payload: $"file={fileName};added={added};updated={updated};skipped={skipped}");
+
+        return new ImportCommitResult(added, updated, skipped);
+    }
+
+    private static void ShowImportFailures(string caption, IReadOnlyList<string> failures)
+    {
+        if (failures.Count == 0) return;
+
+        var shown = failures.Take(8).ToList();
+        var suffix = failures.Count > shown.Count
+            ? $"{Environment.NewLine}{Environment.NewLine}+{failures.Count - shown.Count} more."
+            : string.Empty;
+        MessageBox.Show(Application.Current.MainWindow,
+            string.Join(Environment.NewLine, shown) + suffix,
+            caption,
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
     }
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
@@ -600,7 +847,10 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand(CanExecute = nameof(NotBusy))]
+    private bool CanReviewMerge() =>
+        !IsBusy && SelectedDuplicateGroup is { Members.Count: >= 2 };
+
+    [RelayCommand(CanExecute = nameof(CanReviewMerge))]
     private void ReviewMerge()
     {
         if (SelectedDuplicateGroup is null) return;
@@ -910,6 +1160,28 @@ public partial class MainViewModel : ObservableObject
                     IsPreferred = e.IsPreferred,
                     SourceId = sourceId,
                 };
+        }
+    }
+
+    private sealed record PendingImportBatch(
+        string FilePath,
+        ContactSource Source,
+        ImportPreviewReport Report);
+
+    private readonly record struct ImportCommitResult(int Added, int Updated, int Skipped);
+
+    private sealed class ImportCommitTotals
+    {
+        public int FilesCommitted { get; set; }
+        public int Added { get; private set; }
+        public int Updated { get; private set; }
+        public int Skipped { get; private set; }
+
+        public void Add(ImportCommitResult result)
+        {
+            Added += result.Added;
+            Updated += result.Updated;
+            Skipped += result.Skipped;
         }
     }
 }

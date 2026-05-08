@@ -6,7 +6,7 @@
         MinHeight="420" MinWidth="700"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
-    <Grid Margin="16">
+    <Grid Margin="18">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -14,16 +14,17 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" FontSize="16" FontWeight="SemiBold"
+        <TextBlock Grid.Row="0" FontSize="18" FontWeight="SemiBold"
                    Foreground="{StaticResource TextBrush}"
                    AutomationProperties.Name="Import preview heading">
-            <Run Text="Preview — " />
+            <Run Text="Import preview - " />
             <Run x:Name="FileNameRun" Text="" Foreground="{StaticResource Subtext0Brush}" />
         </TextBlock>
 
         <TextBlock Grid.Row="1" Margin="0,8,0,12"
                    x:Name="SummaryText"
-                   Foreground="{StaticResource Subtext0Brush}" />
+                   Foreground="{StaticResource Subtext0Brush}"
+                   TextWrapping="Wrap" />
 
         <Border Grid.Row="2"
                 Background="{StaticResource MantleBrush}"
@@ -42,6 +43,7 @@
                       EnableRowVirtualization="True"
                       AutomationProperties.Name="Preview items">
                 <DataGrid.Columns>
+                    <DataGridTextColumn Header="File"   Binding="{Binding File}"   Width="150" />
                     <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="120" />
                     <DataGridTextColumn Header="Name"   Binding="{Binding Name}"   Width="260" />
                     <DataGridTextColumn Header="UID"    Binding="{Binding Uid}"    Width="180" />
@@ -54,7 +56,6 @@
             <CheckBox x:Name="SnapshotCheckbox"
                       Content="Capture rollback snapshot before commit"
                       IsChecked="True"
-                      Foreground="{StaticResource Subtext0Brush}"
                       VerticalAlignment="Center" />
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
                 <Button Content="Cancel" Click="OnCancel" Margin="0,0,10,0" IsCancel="True"

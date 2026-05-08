@@ -19,7 +19,8 @@
                    Text="Merge review" />
 
         <TextBlock Grid.Row="1" x:Name="ConfidenceText" Margin="0,4,0,12"
-                   Foreground="{StaticResource Subtext0Brush}" />
+                   Foreground="{StaticResource Subtext0Brush}"
+                   TextWrapping="Wrap" />
 
         <Border Grid.Row="2"
                 Background="{StaticResource MantleBrush}"
@@ -31,7 +32,7 @@
                         <DataTemplate>
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="170" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
@@ -42,17 +43,18 @@
                                 <RadioButton Grid.Column="1"
                                              GroupName="{Binding FieldLabel}"
                                              IsChecked="{Binding ChooseLeft, Mode=TwoWay}"
-                                             Content="{Binding LeftValue}"
                                              ToolTip="{Binding LeftValue}"
-                                             Foreground="{StaticResource TextBrush}"
-                                             Padding="6,2" />
+                                             Padding="6,2"
+                                             Margin="0,0,10,0">
+                                    <TextBlock Text="{Binding LeftValue}" TextWrapping="Wrap" />
+                                </RadioButton>
                                 <RadioButton Grid.Column="2"
                                              GroupName="{Binding FieldLabel}"
                                              IsChecked="{Binding ChooseRight, Mode=TwoWay}"
-                                             Content="{Binding RightValue}"
                                              ToolTip="{Binding RightValue}"
-                                             Foreground="{StaticResource TextBrush}"
-                                             Padding="6,2" />
+                                             Padding="6,2">
+                                    <TextBlock Text="{Binding RightValue}" TextWrapping="Wrap" />
+                                </RadioButton>
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

@@ -19,7 +19,8 @@
                    Foreground="{StaticResource TextBrush}"
                    Margin="0,0,0,18" />
 
-        <StackPanel Grid.Row="1">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <StackPanel>
             <TextBlock Text="Phone normalization region"
                        FontWeight="SemiBold"
                        Foreground="{StaticResource Subtext1Brush}"
@@ -80,6 +81,7 @@
                        Text="Restart not required — theme switches on Save."
                        TextWrapping="Wrap" />
         </StackPanel>
+        </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <Button Content="Cancel" Click="OnCancel" Margin="0,0,10,0" IsCancel="True" />

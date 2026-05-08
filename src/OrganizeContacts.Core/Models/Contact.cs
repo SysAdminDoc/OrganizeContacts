@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace OrganizeContacts.Core.Models;
 
 public sealed class Contact
@@ -29,11 +31,22 @@ public sealed class Contact
     public DateTimeOffset ImportedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public List<PhoneNumber> Phones { get; } = new();
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public List<EmailAddress> Emails { get; } = new();
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public List<PostalAddress> Addresses { get; } = new();
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public List<string> Categories { get; } = new();
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public List<string> Urls { get; } = new();
+
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public Dictionary<string, string> CustomFields { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public string DisplayName =>

@@ -76,4 +76,48 @@ public class StorageTests : IDisposable
         _repo.RestoreContact(c.Id);
         Assert.NotNull(_repo.GetById(c.Id));
     }
+
+    [Fact]
+    public void Tool_operation_snapshot_restores_soft_deleted_contacts()
+    {
+        var source = _repo.UpsertSource(new ContactSource
+        {
+            Kind = SourceKind.Manual,
+            Label = "tools",
+            FilePath = "organizecontacts://tools",
+        });
+        var contact = new Contact
+        {
+            FormattedName = "Before Cleanup",
+            SourceId = source.Id,
+        };
+        contact.Emails.Add(new EmailAddress { Address = "before@example.com" });
+        _repo.InsertContact(contact);
+
+        var op = _repo.StartImport(new ImportRecord
+        {
+            SourceId = source.Id,
+            FilePath = "tool:cleanup",
+            Status = ImportStatus.Pending,
+        });
+        var rollback = new RollbackService(_repo);
+        var snapshotId = rollback.CaptureForImport(op.Id, new[] { contact }, "before cleanup");
+
+        contact.FormattedName = "After Cleanup";
+        contact.Emails[0] = new EmailAddress { Address = "after@example.com" };
+        _repo.UpdateContact(contact);
+        _repo.SoftDeleteContact(contact.Id);
+        op.FinishedAt = DateTimeOffset.UtcNow;
+        op.Status = ImportStatus.Committed;
+        op.ContactsUpdated = 1;
+        _repo.FinishImport(op);
+
+        Assert.Null(_repo.GetById(contact.Id));
+
+        Assert.True(rollback.Restore(snapshotId));
+        var restored = _repo.GetById(contact.Id);
+        Assert.NotNull(restored);
+        Assert.Equal("Before Cleanup", restored!.FormattedName);
+        Assert.Equal("before@example.com", Assert.Single(restored.Emails).Address);
+    }
 }

@@ -22,6 +22,8 @@ namespace OrganizeContacts.App.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
+    private static readonly Guid ToolSourceId = Guid.Parse("4efbb1a1-7530-4d6e-8ce1-5f6b19762b42");
+
     private readonly string _dataDir;
     private readonly string _settingsPath;
 
@@ -163,6 +165,57 @@ public partial class MainViewModel : ObservableObject
         IsProgressIndeterminate = false;
         ProgressValue = 0;
         ProgressLabel = string.Empty;
+    }
+
+    private ContactSource EnsureToolSource()
+    {
+        var source = _repo.UpsertSource(new ContactSource
+        {
+            Id = ToolSourceId,
+            Kind = SourceKind.Manual,
+            Label = "OrganizeContacts tools",
+            FilePath = "organizecontacts://tools",
+        });
+        if (!Sources.Any(x => x.Id == source.Id)) Sources.Add(source);
+        return source;
+    }
+
+    private ImportRecord StartToolImport(string operation)
+    {
+        var source = EnsureToolSource();
+        return _repo.StartImport(new ImportRecord
+        {
+            SourceId = source.Id,
+            FilePath = $"tool:{operation}",
+            Status = ImportStatus.Pending,
+            Notes = operation,
+        });
+    }
+
+    private void FinishToolImport(ImportRecord import, int updated, int skipped, string? notes = null)
+    {
+        import.FinishedAt = DateTimeOffset.UtcNow;
+        import.Status = ImportStatus.Committed;
+        import.ContactsUpdated = updated;
+        import.ContactsSkipped = skipped;
+        import.Notes = notes ?? import.Notes;
+        _repo.FinishImport(import);
+    }
+
+    private void MarkToolImportFailed(ImportRecord? import, string message)
+    {
+        if (import is null) return;
+        try
+        {
+            import.FinishedAt = DateTimeOffset.UtcNow;
+            import.Status = ImportStatus.Failed;
+            import.Notes = message;
+            _repo.FinishImport(import);
+        }
+        catch
+        {
+            // Preserve the original tool failure message.
+        }
     }
 
     public MainViewModel()
@@ -986,9 +1039,26 @@ public partial class MainViewModel : ObservableObject
 
         IsBusy = true;
         BeginProgress($"Clearing 0/{targets.Count} contacts", indeterminate: false, owner: "clear");
+        ImportRecord? operation = null;
         try
         {
             InvalidateDuplicateScan();
+            operation = StartToolImport(title);
+            var rollbackTargets = new List<Contact>(targets.Count);
+            for (int i = 0; i < targets.Count; i++)
+            {
+                rollbackTargets.Add(JsonClone(targets[i]));
+                var processed = i + 1;
+                if (processed % 250 == 0 || processed == targets.Count)
+                {
+                    ReportProgress($"Preparing restore snapshot {processed}/{targets.Count}", processed * 12.0 / targets.Count);
+                    await System.Threading.Tasks.Task.Yield();
+                }
+            }
+            ReportProgress("Saving restore snapshot", 14);
+            await System.Threading.Tasks.Task.Yield();
+            _rollback.CaptureForImport(operation.Id, rollbackTargets, $"before {title}");
+
             var idSet = new HashSet<Guid>(targets.Select(t => t.Id));
             using (var tx = _repo.BeginTransaction())
             {
@@ -1000,7 +1070,7 @@ public partial class MainViewModel : ObservableObject
                     {
                         ReportProgress(
                             $"Clearing {processed}/{targets.Count} contacts",
-                            processed * 85.0 / targets.Count);
+                            15 + processed * 70.0 / targets.Count);
                         await System.Threading.Tasks.Task.Yield();
                     }
                 }
@@ -1035,10 +1105,12 @@ public partial class MainViewModel : ObservableObject
             EndProgress("clear");
             RescanDuplicatesCore(userInitiated: false);
             StatusMessage = $"Cleared (soft-delete) {targets.Count} contact(s). Use Restore History to roll back.";
+            FinishToolImport(operation, updated: targets.Count, skipped: 0, notes: title);
             _history.Audit("contacts.clear", payload: $"count={targets.Count};{auditSuffix}");
         }
         catch (Exception ex)
         {
+            MarkToolImportFailed(operation, ex.Message);
             StatusMessage = $"Clear failed: {ex.Message}";
             ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Could not clear contacts:\n\n{ex.Message}",
@@ -1062,11 +1134,12 @@ public partial class MainViewModel : ObservableObject
 
         IsBusy = true;
         BeginProgress("Preparing cleanup snapshot", indeterminate: false, owner: "cleanup");
-        var importId = Guid.NewGuid();
+        ImportRecord? operation = null;
         try
         {
             // Snapshot every contact before mutating so cleanup is rollback-able.
             InvalidateDuplicateScan();
+            operation = StartToolImport("cleanup");
             var snapshot = new List<Contact>(Contacts.Count);
             for (int i = 0; i < Contacts.Count; i++)
             {
@@ -1080,15 +1153,19 @@ public partial class MainViewModel : ObservableObject
             }
             ReportProgress("Saving cleanup snapshot", 20);
             await System.Threading.Tasks.Task.Yield();
-            _rollback.CaptureForImport(importId, snapshot, $"before cleanup");
+            _rollback.CaptureForImport(operation.Id, snapshot, $"before cleanup");
 
             var cleaner = new BatchCleanup(_phoneNormalizer, _emailCanon);
             var report = new BatchCleanupReport();
             var regexEdits = dlg.Regex is null ? null : new[] { dlg.Regex };
-            for (int i = 0; i < Contacts.Count; i++)
+            var cleaned = new List<Contact>(snapshot.Count);
+            for (int i = 0; i < snapshot.Count; i++)
+                cleaned.Add(JsonClone(snapshot[i]));
+
+            for (int i = 0; i < cleaned.Count; i++)
             {
                 var partial = cleaner.Run(
-                    new[] { Contacts[i] },
+                    new[] { cleaned[i] },
                     dedupePhones: dlg.DedupePhones,
                     dedupeEmails: dlg.DedupeEmails,
                     dedupeUrls: dlg.DedupeUrls,
@@ -1100,9 +1177,9 @@ public partial class MainViewModel : ObservableObject
                 AddCleanupReport(report, partial);
 
                 var processed = i + 1;
-                if (processed % 100 == 0 || processed == Contacts.Count)
+                if (processed % 100 == 0 || processed == cleaned.Count)
                 {
-                    ReportProgress($"Cleaning {processed}/{Contacts.Count} contacts", 20 + processed * 45.0 / Contacts.Count);
+                    ReportProgress($"Cleaning {processed}/{cleaned.Count} contacts", 20 + processed * 45.0 / cleaned.Count);
                     await System.Threading.Tasks.Task.Yield();
                 }
             }
@@ -1111,7 +1188,7 @@ public partial class MainViewModel : ObservableObject
             using var tx = _repo.BeginTransaction();
             var persisted = 0;
             var touchedTotal = Math.Max(report.TouchedIds.Count, 1);
-            foreach (var c in Contacts)
+            foreach (var c in cleaned)
             {
                 if (!report.TouchedIds.Contains(c.Id)) continue;
                 _repo.UpdateContact(c, tx);
@@ -1123,6 +1200,26 @@ public partial class MainViewModel : ObservableObject
                 }
             }
             tx.Commit();
+
+            var uiUpdated = 0;
+            foreach (var c in cleaned)
+            {
+                if (!report.TouchedIds.Contains(c.Id)) continue;
+                var idx = IndexOfContact(c.Id);
+                if (idx >= 0) Contacts[idx] = c;
+                uiUpdated++;
+                if (uiUpdated % 250 == 0 || uiUpdated == touchedTotal)
+                {
+                    ReportProgress($"Updating list {uiUpdated}/{touchedTotal} contacts", 96 + uiUpdated * 4.0 / touchedTotal);
+                    await System.Threading.Tasks.Task.Yield();
+                }
+            }
+
+            FinishToolImport(
+                operation,
+                updated: report.ContactsTouched,
+                skipped: Math.Max(Contacts.Count - report.ContactsTouched, 0),
+                notes: report.Summary);
             _history.Audit("cleanup.run", payload: report.Summary);
             IsBusy = false;
             EndProgress("cleanup");
@@ -1131,10 +1228,12 @@ public partial class MainViewModel : ObservableObject
         }
         catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex)
         {
+            MarkToolImportFailed(operation, ex.Message);
             StatusMessage = $"Cleanup aborted: regex timed out ({ex.Message}).";
         }
         catch (Exception ex)
         {
+            MarkToolImportFailed(operation, ex.Message);
             StatusMessage = $"Cleanup failed: {ex.Message}";
             ThemedMessageDialog.Show(Application.Current.MainWindow,
                 $"Could not finish cleanup:\n\n{ex.Message}",

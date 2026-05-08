@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using OrganizeContacts.Core.Models;
 
@@ -13,12 +14,18 @@ public sealed record RollbackSnapshot(Guid Id, Guid ImportId, DateTimeOffset Cre
 public sealed class RollbackService
 {
     private readonly ContactRepository _repo;
+    private static readonly JsonSerializerOptions SnapshotJsonOptions = new()
+    {
+        WriteIndented = false,
+        PreferredObjectCreationHandling = JsonObjectCreationHandling.Populate,
+    };
+
     public RollbackService(ContactRepository repo) => _repo = repo;
 
     public Guid CaptureForImport(Guid importId, IEnumerable<Contact> before, string label = "")
     {
         var id = Guid.NewGuid();
-        var json = JsonSerializer.Serialize(before, new JsonSerializerOptions { WriteIndented = false });
+        var json = JsonSerializer.Serialize(before, SnapshotJsonOptions);
         using var cmd = _repo.Connection.CreateCommand();
         cmd.CommandText = """
             INSERT INTO rollback_snapshots (id, import_id, created_utc, label, blob_json)
@@ -68,7 +75,7 @@ public sealed class RollbackService
             json = rdr.GetString(1);
         }
 
-        var snapshot = JsonSerializer.Deserialize<List<Contact>>(json) ?? new List<Contact>();
+        var snapshot = JsonSerializer.Deserialize<List<Contact>>(json, SnapshotJsonOptions) ?? new List<Contact>();
         var snapshotIds = snapshot.Select(c => c.Id).ToHashSet();
 
         using var tx = _repo.BeginTransaction();

@@ -106,30 +106,66 @@ public sealed class VCardImporter : IContactImporter
     ///    `=`), regardless of leading whitespace. Without this, long QP-encoded values
     ///    from Outlook for Mac / BlackBerry exports were silently truncated at the first
     ///    soft break.
+    ///
+    /// Defence: if the QP-trailing-equals line is followed by what clearly begins a new
+    /// vCard property (uppercase letter / digit / "BEGIN" / "END" with a colon on the
+    /// same line), do NOT swallow the next line — that "=" was either a literal trailing
+    /// equal in a malformed export or marked the end of the value. Without this guard a
+    /// hand-edited card could hide its own EMAIL/TEL lines inside the prior TEL value.
     /// </summary>
     internal static List<string> Unfold(IReadOnlyList<string> raw)
     {
         var unfolded = new List<string>(raw.Count);
+        var sb = new StringBuilder();
         foreach (var line in raw)
         {
             // RFC 6350 whitespace-continuation
             if (line.Length > 0 && (line[0] == ' ' || line[0] == '\t') && unfolded.Count > 0)
             {
-                unfolded[^1] += line[1..];
+                sb.Clear();
+                sb.Append(unfolded[^1]).Append(line, 1, line.Length - 1);
+                unfolded[^1] = sb.ToString();
                 continue;
             }
-            // RFC 2045 quoted-printable soft-line-break: the previous logical line ends with
-            // `=` AND was declared QP-encoded.
+            // RFC 2045 quoted-printable soft-line-break.
             if (unfolded.Count > 0 &&
                 unfolded[^1].EndsWith('=') &&
-                IsQuotedPrintableLine(unfolded[^1]))
+                IsQuotedPrintableLine(unfolded[^1]) &&
+                !LooksLikePropertyLine(line))
             {
-                unfolded[^1] = unfolded[^1][..^1] + line;
+                sb.Clear();
+                sb.Append(unfolded[^1], 0, unfolded[^1].Length - 1).Append(line);
+                unfolded[^1] = sb.ToString();
                 continue;
             }
             unfolded.Add(line);
         }
         return unfolded;
+    }
+
+    /// <summary>Heuristic: is <paramref name="line"/> a fresh vCard property line?
+    /// True for lines that start with an uppercase letter or digit and contain a `:`
+    /// before any `=` (since `=` is the only QP marker we'd expect inside a value).</summary>
+    private static bool LooksLikePropertyLine(string line)
+    {
+        if (line.Length == 0) return false;
+        var first = line[0];
+        if (!(char.IsAsciiLetterUpper(first) || char.IsAsciiDigit(first))) return false;
+        // BEGIN:VCARD / END:VCARD always start a fresh card.
+        if (line.StartsWith("BEGIN:", StringComparison.OrdinalIgnoreCase) ||
+            line.StartsWith("END:", StringComparison.OrdinalIgnoreCase)) return true;
+        var colon = line.IndexOf(':');
+        if (colon <= 0) return false;
+        // Property name characters must be alnum, '-', or '.' (groups). Allow ';' as that
+        // appears in `TEL;TYPE=CELL`.
+        for (int i = 0; i < colon; i++)
+        {
+            var ch = line[i];
+            if (char.IsAsciiLetterOrDigit(ch) || ch == '-' || ch == '.' || ch == ';' || ch == '=' || ch == ',' || ch == '"' || ch == '_')
+                continue;
+            return false;
+        }
+        return true;
     }
 
     private static bool IsQuotedPrintableLine(string line)
@@ -413,6 +449,11 @@ public sealed class VCardImporter : IContactImporter
         return parts;
     }
 
+    /// <summary>Split on unescaped <c>;</c> while keeping every backslash escape sequence
+    /// intact for the per-field <see cref="UnescapeText"/> pass. The previous implementation
+    /// stripped the backslash and emitted only the next char, so a structured value like
+    /// <c>Family;Given;\nMiddle</c> arrived at the leaf handlers as <c>nMiddle</c> instead
+    /// of a literal newline (because UnescapeText could no longer see the \n escape).</summary>
     private static string[] SplitStructured(string value)
     {
         var parts = new List<string>();
@@ -420,7 +461,14 @@ public sealed class VCardImporter : IContactImporter
         for (int i = 0; i < value.Length; i++)
         {
             var ch = value[i];
-            if (ch == '\\' && i + 1 < value.Length) { sb.Append(value[i + 1]); i++; continue; }
+            if (ch == '\\' && i + 1 < value.Length)
+            {
+                // Preserve the escape pair so UnescapeText can decode \n / \, / \; / \\ later.
+                sb.Append(ch);
+                sb.Append(value[i + 1]);
+                i++;
+                continue;
+            }
             if (ch == ';') { parts.Add(sb.ToString()); sb.Clear(); continue; }
             sb.Append(ch);
         }
@@ -650,10 +698,14 @@ public sealed class VCardImporter : IContactImporter
                 var meta = prop.Value[5..comma];
                 var data = prop.Value[(comma + 1)..];
                 var isB64 = meta.IndexOf("base64", StringComparison.OrdinalIgnoreCase) >= 0;
-                contact.PhotoMimeType = meta.Split(';')[0];
                 if (isB64)
                 {
-                    try { contact.PhotoBytes = Convert.FromBase64String(data.Replace("\r", "").Replace("\n", "")); }
+                    try
+                    {
+                        contact.PhotoBytes = Convert.FromBase64String(StripBase64Whitespace(data));
+                        contact.PhotoMimeType = meta.Split(';')[0];
+                        InferMimeFromMagicIfMissing(contact);
+                    }
                     catch { /* skip malformed */ }
                 }
             }
@@ -665,15 +717,46 @@ public sealed class VCardImporter : IContactImporter
         if (string.Equals(encoding, "BASE64", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(encoding, "B", StringComparison.OrdinalIgnoreCase))
         {
-            try { contact.PhotoBytes = Convert.FromBase64String(prop.Value.Replace(" ", "").Replace("\r", "").Replace("\n", "")); }
-            catch { /* skip malformed */ }
+            try
+            {
+                contact.PhotoBytes = Convert.FromBase64String(StripBase64Whitespace(prop.Value));
+            }
+            catch { /* skip malformed */ return; }
 
             var t = prop.GetParam("TYPE");
             contact.PhotoMimeType = t is null ? null : (t.Contains('/') ? t : $"image/{t.ToLowerInvariant()}");
+            // No TYPE param? Sniff JPEG/PNG magic so the photo isn't orphaned without
+            // a mime type — UI / writer fall back to image/jpeg, but having the right
+            // mime preserves PNG transparency on round-trip.
+            InferMimeFromMagicIfMissing(contact);
             return;
         }
 
         // External URL — skipped (don't fetch)
+    }
+
+    private static string StripBase64Whitespace(string s)
+    {
+        // Faster + GC-friendlier than chained Replace calls.
+        if (s.IndexOfAny(s_b64WhitespaceChars) < 0) return s;
+        var sb = new StringBuilder(s.Length);
+        foreach (var ch in s)
+            if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') sb.Append(ch);
+        return sb.ToString();
+    }
+    private static readonly char[] s_b64WhitespaceChars = new[] { ' ', '\t', '\r', '\n' };
+
+    private static void InferMimeFromMagicIfMissing(Contact contact)
+    {
+        if (!string.IsNullOrEmpty(contact.PhotoMimeType)) return;
+        var bytes = contact.PhotoBytes;
+        if (bytes is null || bytes.Length < 4) return;
+        if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) contact.PhotoMimeType = "image/jpeg";
+        else if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) contact.PhotoMimeType = "image/png";
+        else if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) contact.PhotoMimeType = "image/gif";
+        else if (bytes.Length >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 &&
+                 bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50)
+            contact.PhotoMimeType = "image/webp";
     }
 }
 

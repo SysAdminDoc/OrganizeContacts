@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using OrganizeContacts.Core.Models;
@@ -18,6 +19,17 @@ public partial class RestoreHistoryDialog : Window
         _repo = repo;
         _rollback = rollback;
         Refresh();
+    }
+
+    /// <summary>If the user closes via the title-bar X (or Alt+F4) after performing a restore,
+    /// WPF would otherwise leave DialogResult null and the parent skip its reload — the database
+    /// has already changed but the UI list would still show the pre-restore state. Always
+    /// surface the in-flight restore decision through DialogResult.</summary>
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!DialogResult.HasValue)
+            DialogResult = RestorePerformed;
+        base.OnClosing(e);
     }
 
     private void Refresh()

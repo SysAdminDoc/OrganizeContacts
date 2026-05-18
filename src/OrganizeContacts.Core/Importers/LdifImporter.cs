@@ -83,17 +83,27 @@ public sealed class LdifImporter : IContactImporter
 
     private static Contact? MapAttrs(Dictionary<string, List<string>> attrs, string source)
     {
-        // Skip group/dn-only blocks
-        if (!attrs.ContainsKey("cn") && !attrs.ContainsKey("givenName") && !attrs.ContainsKey("mail")) return null;
+        // Skip group/dn-only blocks. Accept any "person-shaped" attribute as proof there's
+        // real data here — the previous gate only allowed cn/givenName/mail and silently
+        // dropped phone-only or address-only Mozilla MAB exports.
+        if (!attrs.ContainsKey("cn") && !attrs.ContainsKey("givenName") &&
+            !attrs.ContainsKey("sn") && !attrs.ContainsKey("mail") &&
+            !attrs.ContainsKey("mozillaSecondEmail") &&
+            !attrs.ContainsKey("telephoneNumber") && !attrs.ContainsKey("homePhone") &&
+            !attrs.ContainsKey("workPhone") && !attrs.ContainsKey("cellPhone") &&
+            !attrs.ContainsKey("mobile") && !attrs.ContainsKey("facsimileTelephoneNumber") &&
+            !attrs.ContainsKey("pager") &&
+            !attrs.ContainsKey("street") && !attrs.ContainsKey("mozillaWorkStreet"))
+            return null;
 
         var c = new Contact { SourceFile = source, SourceFormat = "LDIF" };
         var seen = false;
 
         if (attrs.TryGetValue("cn", out var cn) && cn.Count > 0)        { c.FormattedName = cn[0]; seen = true; }
-        if (attrs.TryGetValue("givenName", out var gn) && gn.Count > 0)  c.GivenName = gn[0];
-        if (attrs.TryGetValue("sn", out var sn) && sn.Count > 0)         c.FamilyName = sn[0];
-        if (attrs.TryGetValue("mozillaNickname", out var nick) && nick.Count > 0) c.Nickname = nick[0];
-        if (attrs.TryGetValue("o", out var org) && org.Count > 0)        c.Organization = org[0];
+        if (attrs.TryGetValue("givenName", out var gn) && gn.Count > 0)  { c.GivenName = gn[0]; seen = true; }
+        if (attrs.TryGetValue("sn", out var sn) && sn.Count > 0)         { c.FamilyName = sn[0]; seen = true; }
+        if (attrs.TryGetValue("mozillaNickname", out var nick) && nick.Count > 0) { c.Nickname = nick[0]; seen = true; }
+        if (attrs.TryGetValue("o", out var org) && org.Count > 0)        { c.Organization = org[0]; seen = true; }
         if (attrs.TryGetValue("title", out var title) && title.Count > 0) c.Title = title[0];
         if (attrs.TryGetValue("description", out var notes) && notes.Count > 0) c.Notes = notes[0];
 
@@ -110,6 +120,11 @@ public sealed class LdifImporter : IContactImporter
         AddAddress("street", "l", "st", "postalCode", "c", AddressKind.Home);
         AddAddress("mozillaWorkStreet", "mozillaWorkCity", "mozillaWorkState",
                    "mozillaWorkPostalCode", "mozillaWorkCountry", AddressKind.Work);
+
+        // A card with only mail / phone / address is still a card — pre-fix `seen`
+        // was set only on cn/givenName/sn so e.g. a Thunderbird "mail-only" entry was
+        // silently dropped. Now any populated child collection counts as content.
+        if (c.Emails.Count > 0 || c.Phones.Count > 0 || c.Addresses.Count > 0) seen = true;
 
         return seen ? c : null;
 

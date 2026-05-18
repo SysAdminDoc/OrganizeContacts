@@ -27,14 +27,16 @@ public sealed class DedupEngine
         var list = contacts.ToList();
         if (list.Count < 2) return Array.Empty<DuplicateGroup>();
 
-        // Stage 1 — blocking
-        var blocks = new Dictionary<string, List<Contact>>(StringComparer.Ordinal);
+        // Stage 1 — blocking. The `seen` set per bucket replaces an O(n) `bucket.Contains(c)`
+        // membership check that turned bucket construction into O(n²) when many contacts
+        // share a hot key (e.g. thousands of contacts with the same area code).
+        var blocks = new Dictionary<string, (List<Contact> Items, HashSet<Guid> Seen)>(StringComparer.Ordinal);
         foreach (var c in list)
             foreach (var key in BlockKeys(c))
             {
                 if (!blocks.TryGetValue(key, out var bucket))
-                    blocks[key] = bucket = new List<Contact>();
-                if (!bucket.Contains(c)) bucket.Add(c);
+                    blocks[key] = bucket = (new List<Contact>(), new HashSet<Guid>());
+                if (bucket.Seen.Add(c.Id)) bucket.Items.Add(c);
             }
 
         // Stage 2 — pair scoring within blocks (union-find merges related pairs into a group)
@@ -60,22 +62,22 @@ public sealed class DedupEngine
             if (ra != rb) parent[ra] = rb;
         }
 
-        foreach (var bucket in blocks.Values)
+        foreach (var (items, _) in blocks.Values)
         {
-            if (bucket.Count < 2) continue;
-            for (int i = 0; i < bucket.Count; i++)
+            if (items.Count < 2) continue;
+            for (int i = 0; i < items.Count; i++)
             {
-                for (int j = i + 1; j < bucket.Count; j++)
+                for (int j = i + 1; j < items.Count; j++)
                 {
-                    var (conf, signals) = ScorePair(bucket[i], bucket[j]);
+                    var (conf, signals) = ScorePair(items[i], items[j]);
                     if (conf < _rules.ReviewThreshold) continue;
 
-                    var key = bucket[i].Id.CompareTo(bucket[j].Id) < 0
-                        ? (bucket[i].Id, bucket[j].Id)
-                        : (bucket[j].Id, bucket[i].Id);
+                    var key = items[i].Id.CompareTo(items[j].Id) < 0
+                        ? (items[i].Id, items[j].Id)
+                        : (items[j].Id, items[i].Id);
                     if (!pairScores.TryGetValue(key, out var existing) || existing.conf < conf)
                         pairScores[key] = (conf, signals);
-                    Union(bucket[i].Id, bucket[j].Id);
+                    Union(items[i].Id, items[j].Id);
                 }
             }
         }

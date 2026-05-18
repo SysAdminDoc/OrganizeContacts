@@ -57,7 +57,10 @@ public static class PhotoSanitizer
                b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A;
     }
 
-    /// <summary>Walk JPEG markers; copy everything except APP1..APP15 + COM segments.</summary>
+    /// <summary>Walk JPEG markers; copy everything except APP1..APP15 + COM segments.
+    /// On any structural anomaly (truncated stream, bogus segment length, unexpected marker
+    /// before SOI) we abort and return the original bytes — better to keep a slightly
+    /// metadata-rich photo than to ship a half-rewritten file that won't decode.</summary>
     private static byte[] StripJpeg(byte[] input)
     {
         using var ms = new MemoryStream(input.Length);
@@ -65,7 +68,7 @@ public static class PhotoSanitizer
         var i = 2;
         while (i + 1 < input.Length)
         {
-            if (input[i] != 0xFF) break;
+            if (input[i] != 0xFF) return input; // not a marker — file is malformed
             byte marker = input[i + 1];
             i += 2;
             if (marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7))
@@ -83,9 +86,9 @@ public static class PhotoSanitizer
                 ms.Write(input, i, input.Length - i);
                 return ms.ToArray();
             }
-            if (i + 1 >= input.Length) break;
+            if (i + 1 >= input.Length) return input; // segment header truncated
             int segLen = (input[i] << 8) | input[i + 1];
-            if (segLen < 2 || i + segLen > input.Length) break;
+            if (segLen < 2 || i + segLen > input.Length) return input; // bogus length
 
             // Drop APPn (1..15) + COM. Keep APP0 (JFIF) and everything else (frame, quantization, huffman).
             var drop = (marker >= 0xE1 && marker <= 0xEF) || marker == 0xFE;
@@ -97,21 +100,27 @@ public static class PhotoSanitizer
             }
             i += segLen;
         }
-        return ms.ToArray();
+        // Reached EOF without seeing EOI — input is truncated. Keep the original.
+        return input;
     }
 
-    /// <summary>Walk PNG chunks; copy critical chunks + IDAT/PLTE; drop ancillary metadata.</summary>
+    /// <summary>Walk PNG chunks; copy critical chunks + IDAT/PLTE; drop ancillary metadata.
+    /// Returns the original input on any structural anomaly so we never write a PNG that
+    /// lacks IEND or has a half-written chunk.</summary>
     private static byte[] StripPng(byte[] input)
     {
         using var ms = new MemoryStream(input.Length);
         ms.Write(input, 0, 8);
         var i = 8;
+        var sawIend = false;
         while (i + 8 <= input.Length)
         {
             uint length = BinaryPrimitives.ReadUInt32BigEndian(input.AsSpan(i, 4));
+            // PNG spec caps chunk length at 2^31-1; anything larger is malformed.
+            if (length > int.MaxValue - 12) return input;
             string type = System.Text.Encoding.ASCII.GetString(input, i + 4, 4);
             int total = 4 + 4 + (int)length + 4; // length + type + data + crc
-            if (i + total > input.Length) break;
+            if (total < 12 || i + total > input.Length) return input;
 
             if (KeepPngChunk(type))
             {
@@ -119,9 +128,11 @@ public static class PhotoSanitizer
             }
             i += total;
 
-            if (type == "IEND") break;
+            if (type == "IEND") { sawIend = true; break; }
         }
-        return ms.ToArray();
+        // No IEND in input — file is truncated; return original rather than producing
+        // a stripped PNG that would never decode.
+        return sawIend ? ms.ToArray() : input;
     }
 
     private static bool KeepPngChunk(string type) => type switch

@@ -2,7 +2,10 @@ using System.Text;
 
 namespace OrganizeContacts.Core.Importers;
 
-/// <summary>RFC 4180-style CSV writer. Quotes fields that contain commas, quotes, or newlines.</summary>
+/// <summary>RFC 4180-style CSV writer. Quotes fields that contain commas, quotes, or newlines,
+/// and defangs Excel/Sheets formula-injection vectors so a contact field starting with
+/// <c>=</c>, <c>+</c>, <c>-</c>, <c>@</c>, <c>\t</c>, or <c>\r</c> can't trigger code execution
+/// when the export is opened in a spreadsheet (CWE-1236, OWASP "CSV Injection").</summary>
 public static class CsvWriter
 {
     public static string Format(IEnumerable<string> row)
@@ -30,7 +33,26 @@ public static class CsvWriter
     public static string Escape(string? f)
     {
         if (string.IsNullOrEmpty(f)) return string.Empty;
-        if (f.IndexOfAny(new[] { ',', '"', '\r', '\n' }) < 0) return f;
-        return "\"" + f.Replace("\"", "\"\"") + "\"";
+        var sanitized = StripFormulaPrefix(f);
+        if (sanitized.IndexOfAny(QuotingTriggers) < 0) return sanitized;
+        return "\"" + sanitized.Replace("\"", "\"\"") + "\"";
+    }
+
+    private static readonly char[] QuotingTriggers = new[] { ',', '"', '\r', '\n' };
+
+    /// <summary>Prefix a single-quote (Excel's literal-text marker) when the cell starts
+    /// with a character that Excel/Sheets/Numbers would treat as a formula. The single
+    /// quote is invisible in the spreadsheet but neutralises evaluation. Idempotent —
+    /// re-importing through our own reader simply sees the leading quote as literal.</summary>
+    private static string StripFormulaPrefix(string f)
+    {
+        if (f.Length == 0) return f;
+        var first = f[0];
+        if (first == '=' || first == '+' || first == '-' || first == '@' ||
+            first == '\t' || first == '\r')
+        {
+            return "'" + f;
+        }
+        return f;
     }
 }

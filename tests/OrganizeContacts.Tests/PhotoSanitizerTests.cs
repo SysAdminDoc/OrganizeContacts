@@ -34,26 +34,28 @@ public class PhotoSanitizerTests
     [Fact]
     public void Strips_jpeg_app1_exif_segment()
     {
-        // Synthetic JPEG with SOI + APP1(EXIF) + SOS payload + EOI
+        // Synthetic JPEG with SOI + APP1(EXIF) + APP0(JFIF) + SOS payload + EOI.
+        // Segment length field per JPEG spec INCLUDES the 2 length bytes themselves
+        // (i.e. real-world Exif segments declare length = 2 + payload_length).
         var jpeg = new List<byte> { 0xFF, 0xD8 };
 
-        // APP1 marker, length 12 (incl length bytes), "Exif\0\0" + 4 bytes payload
-        jpeg.AddRange(new byte[] { 0xFF, 0xE1, 0x00, 0x0E });
+        // APP1: marker (2) + length (2 = 0x0C/12 includes itself) + "Exif\0\0" (6) + 4 bytes payload (4)
+        jpeg.AddRange(new byte[] { 0xFF, 0xE1, 0x00, 0x0C });
         jpeg.AddRange(System.Text.Encoding.ASCII.GetBytes("Exif\0\0"));
         jpeg.AddRange(new byte[] { 0x01, 0x02, 0x03, 0x04 });
 
-        // APP0 marker, length 16, "JFIF\0" + 9 bytes
+        // APP0: marker (2) + length (2 = 0x10/16 includes itself) + "JFIF\0" (5) + 9 bytes
         jpeg.AddRange(new byte[] { 0xFF, 0xE0, 0x00, 0x10 });
         jpeg.AddRange(System.Text.Encoding.ASCII.GetBytes("JFIF\0"));
         jpeg.AddRange(new byte[] { 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00 });
 
-        // SOS + minimal payload + EOI
+        // SOS + minimal payload + EOI.  SOS length 2 means just the length field.
         jpeg.AddRange(new byte[] { 0xFF, 0xDA, 0x00, 0x02, 0x42, 0x42, 0xFF, 0xD9 });
 
         var stripped = PhotoSanitizer.StripMetadata(jpeg.ToArray(), "image/jpeg");
         Assert.NotEmpty(stripped);
         // Output must keep SOI, APP0, SOS data, EOI but drop APP1.
-        Assert.True(stripped.Length < jpeg.Count, "Expected output to be smaller than input");
+        Assert.True(stripped.Length < jpeg.Count, $"Expected output to be smaller than input ({stripped.Length} vs {jpeg.Count})");
         // Confirm APP1 marker is gone in the head bytes.
         var head = stripped.Take(20).ToList();
         for (int i = 0; i < head.Count - 1; i++)

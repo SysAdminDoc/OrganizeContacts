@@ -2,6 +2,89 @@
 
 All notable changes to OrganizeContacts will be documented in this file.
 
+## v0.3.2 — 2026-05-08 — Deep audit pass
+
+Second hardening sweep, focused on importer correctness, undo fidelity, photo-strip
+safety, and CSV export hygiene. 109 tests passing (13 new regression tests guarding
+the fixes below).
+
+**Correctness — importers**
+
+- `LdifImporter`: cards exported from Thunderbird/Mozilla MAB with only `mail`,
+  `mobile`, `homePhone`, `mozillaWorkStreet` (etc.) are now imported. Pre-fix the
+  `seen` flag was set only by `cn`/`givenName`/`sn` AND a stricter top-level gate
+  silently dropped any block that lacked one of `cn`/`givenName`/`mail`. Both gates
+  now accept any populated person-shaped attribute.
+- `JCardImporter`: `CATEGORIES` expressed as a single comma-delimited string
+  (`["categories", {}, "text", "vip,client"]`) was unreachable due to a dangling
+  `else` binding to an inner `if` — the branch only fired for partial-array inputs
+  and the comma-split form silently dropped every category. Braces added so both
+  shapes parse. Cards with only `TEL`/`EMAIL`/`URL` no longer dropped (`seen`
+  flag now tracks every populated child collection).
+- `VCardImporter.SplitStructured`: the structured-field splitter stripped backslash
+  escapes before per-leaf `UnescapeText` could see them, so `N:Smith\nJr;…` arrived
+  as the literal `nJr` instead of a newline. Now the escape pair survives the split.
+- `VCardImporter.Unfold`: the QP soft-line-break unfolder now refuses to swallow a
+  following line that lexically begins a fresh vCard property
+  (`EMAIL:`/`TEL;…:`/`BEGIN:VCARD`). A malformed QP value ending with `=` could
+  previously concat the next property line into the value, hiding `EMAIL`/`TEL`
+  fields from import.
+- `VCardImporter.TryAttachPhoto`: when a 2.1/3.0 PHOTO arrives with `ENCODING=B`
+  but no `TYPE` parameter, the mime is now sniffed from JPEG/PNG/GIF/WebP magic
+  bytes instead of left null. Photo bytes are only assigned once the base64 decode
+  succeeds — a partial extraction never leaves the contact with bytes-without-mime.
+  `Convert.FromBase64String` no longer pays the 3-Replace overhead per photo.
+
+**Correctness — undo**
+
+- Merge undo now restores the survivor to its **pre-merge state** in addition to
+  un-soft-deleting the secondaries. Pre-fix the inverse JSON only carried the
+  secondary IDs, so undoing a merge restored the secondaries while leaving the
+  survivor still holding their merged-in phones/emails/categories — recreating the
+  exact duplicates the merge had unified. The new inverse payload (`primaryBefore`)
+  is written by both `ReviewMerge` and `AutoMerge`; older entries fall back to the
+  legacy secondaries-only restore.
+
+**Security**
+
+- `CsvWriter.Escape`: Excel/Sheets/Numbers formula-injection (CWE-1236) is defanged
+  by prefixing a single quote (Excel's literal-text marker) when a cell starts with
+  `=`, `+`, `-`, `@`, `\t`, or `\r`. Plain-text and email cells are unaffected.
+  Cells that need both the prefix AND quoting (e.g. `=A1,B1`) get both.
+
+**Reliability — robustness & resource safety**
+
+- `PhotoSanitizer.StripJpeg`/`StripPng`: a malformed input (truncated stream,
+  bogus segment length, missing IEND) used to produce a half-rewritten output
+  that no decoder accepted. Both strippers now return the **original** bytes on
+  any structural anomaly so the user keeps a usable file. PNG chunk length is
+  range-checked against `int.MaxValue` so an oversized declared length can't
+  underflow on the cast.
+- `AppSettings.Save`: temp-file uses a per-call random suffix (so two simultaneous
+  saves can't race on the same `.tmp`), and the underlying `FileStream`
+  flushes-to-disk before the rename so a power-loss between Move and OS commit
+  can't surface as a torn settings file.
+- `RestoreHistoryDialog`: closing via the title-bar X (or Alt+F4) after a
+  successful restore now sets `DialogResult` from `RestorePerformed`, so the
+  parent always reloads the contact list. Pre-fix the database had changed but
+  the UI list still showed the pre-restore state.
+
+**Performance**
+
+- `DedupEngine`: blocking-bucket membership is now a `HashSet<Guid>` instead of
+  `List<Contact>.Contains` — block construction is O(n) again instead of O(n²)
+  in the hottest bucket size. A 1000-contact hot bucket no longer eats hundreds
+  of milliseconds at scan start.
+- `MainViewModel`: import-commit and cleanup now build a single id→index
+  `Dictionary` before the `Contacts[idx] = c` loop instead of calling the linear
+  `IndexOfContact` per row. For a 10K-row commit landing on a 10K library this
+  removed a quadratic UI-thread stall.
+- `MainViewModel.ImportFolderAsync`: progress bar no longer stalls when a
+  detected file parses to 0 contacts (the `continue` skipped the per-file tick).
+- `OpenSettings`: settings-save IO failure no longer crashes the dialog —
+  in-memory edits still apply for the session and the user is informed via a
+  themed dialog.
+
 ## v0.3.1 — 2026-05-07 — Hardening pass
 
 End-to-end correctness, durability, and UX hardening pass across the whole codebase.

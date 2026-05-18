@@ -384,15 +384,18 @@ public partial class MainViewModel : ObservableObject
                         file.FilePath,
                         file.Format.Importer,
                         file.Format.SourceKind);
-                    if (report.Items.Count == 0) continue;
-
-                    batches.Add(new PendingImportBatch(file.FilePath, source, report));
-                    foreach (var item in report.Items) aggregate.Items.Add(item);
+                    if (report.Items.Count > 0)
+                    {
+                        batches.Add(new PendingImportBatch(file.FilePath, source, report));
+                        foreach (var item in report.Items) aggregate.Items.Add(item);
+                    }
                 }
                 catch (Exception ex)
                 {
                     previewFailures.Add($"{Path.GetFileName(file.FilePath)}: {ex.Message}");
                 }
+                // Always tick: previously a `continue` after an empty file's preview skipped
+                // the increment, leaving the progress bar stalled until the next non-empty file.
                 completed++;
                 ReportProgress(
                     $"Previewed {completed}/{detected.Count} files",
@@ -781,10 +784,22 @@ public partial class MainViewModel : ObservableObject
                 await System.Threading.Tasks.Task.Yield();
             }
         }
+
+        // Pre-build an id → index map so the pendingUpdates loop is O(N) instead of
+        // O(N×M). For 10K imports landing on a 10K library this turned an avoidable
+        // 10²s of UI-thread time into a few ms.
+        var indexById = pendingUpdates.Count > 0 ? BuildContactIndexMap() : null;
         foreach (var c in pendingUpdates)
         {
-            var idx = IndexOfContact(c.Id);
-            if (idx >= 0) Contacts[idx] = c;
+            if (indexById!.TryGetValue(c.Id, out var idx) && idx < Contacts.Count && Contacts[idx].Id == c.Id)
+                Contacts[idx] = c;
+            else
+            {
+                // Fallback in case the collection was mutated mid-loop (unlikely on the UI
+                // thread but defensive against future async changes).
+                var live = IndexOfContact(c.Id);
+                if (live >= 0) Contacts[live] = c;
+            }
             uiProcessed++;
             if (uiProcessed % 250 == 0 || uiProcessed == uiTotal)
             {
@@ -883,7 +898,18 @@ public partial class MainViewModel : ObservableObject
         if (dlg.ShowDialog() == true)
         {
             InvalidateDuplicateScan();
-            _settings.Save(_settingsPath);
+            try
+            {
+                _settings.Save(_settingsPath);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Settings could not be persisted: {ex.Message}";
+                ThemedMessageDialog.Show(Application.Current.MainWindow,
+                    $"Settings will apply for this session but could not be saved to disk:\n\n{ex.Message}",
+                    "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                // Continue applying in-memory — better UX than dropping the user's edits.
+            }
             App.ApplyTheme(_settings.Theme);
             // Rebuild the settings-derived collaborators so a profile change takes effect
             // on the next rescan / import without needing an app restart.
@@ -928,6 +954,10 @@ public partial class MainViewModel : ObservableObject
         if (dlg.ShowDialog() != true || dlg.Result is null) return;
 
         InvalidateDuplicateScan();
+        // Capture the survivor's pre-merge state BEFORE applying — without it, undo would
+        // restore the secondaries but leave the survivor still holding their merged
+        // collections, creating duplicates of the data we just unified.
+        var primaryBefore = JsonClone(dlg.Result.Primary);
         var result = _mergeEngine.Apply(dlg.Result);
 
         using var tx = _repo.BeginTransaction();
@@ -940,7 +970,7 @@ public partial class MainViewModel : ObservableObject
         _history.RecordUndo(
             "merge",
             new { primary = result.Survivor.Id, removed = result.RemovedSecondaries.Select(c => c.Id) },
-            new { restored = result.RemovedSecondaries.Select(c => c.Id) },
+            new { primaryBefore, restored = result.RemovedSecondaries.Select(c => c.Id) },
             $"merge {result.Survivor.DisplayName}");
 
         ReloadFromStore();
@@ -966,19 +996,44 @@ public partial class MainViewModel : ObservableObject
             if (ok != MessageBoxResult.OK) return;
         }
 
-        // For merge: re-insert removed contacts via reading the inverse JSON.
+        // For merge: revert the survivor to its pre-merge state AND un-soft-delete the
+        // removed secondaries. The previous version only un-deleted secondaries, leaving
+        // the survivor still holding the merged-in collections — so undoing a merge
+        // recreated duplicates of the data we'd just unified.
         try
         {
             InvalidateDuplicateScan();
             using var doc = System.Text.Json.JsonDocument.Parse(entry.InverseJson);
-            if (entry.Op == "merge" && doc.RootElement.TryGetProperty("restored", out var restored))
+            if (entry.Op == "merge")
             {
                 using var tx = _repo.BeginTransaction();
-                foreach (var idEl in restored.EnumerateArray())
+                var root = doc.RootElement;
+
+                // Survivor pre-merge state (newer entries) — older entries lack this field
+                // and we degrade gracefully (secondary-only restore).
+                if (root.TryGetProperty("primaryBefore", out var primaryBefore) &&
+                    primaryBefore.ValueKind == System.Text.Json.JsonValueKind.Object)
                 {
-                    var id = Guid.Parse(idEl.GetString()!);
-                    _repo.RestoreContact(id, tx);
+                    var pre = System.Text.Json.JsonSerializer.Deserialize<Contact>(primaryBefore.GetRawText());
+                    if (pre is not null && _repo.ExistsAnyState(pre.Id))
+                    {
+                        _repo.UpdateContact(pre, tx);
+                        // If a follow-up Clear soft-deleted the survivor, restore it too.
+                        _repo.RestoreContact(pre.Id, tx);
+                    }
                 }
+
+                if (root.TryGetProperty("restored", out var restored) &&
+                    restored.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var idEl in restored.EnumerateArray())
+                    {
+                        if (idEl.ValueKind != System.Text.Json.JsonValueKind.String) continue;
+                        if (!Guid.TryParse(idEl.GetString(), out var id)) continue;
+                        _repo.RestoreContact(id, tx);
+                    }
+                }
+
                 tx.Commit();
             }
             _history.MarkUndone(entry.Id);
@@ -1201,12 +1256,18 @@ public partial class MainViewModel : ObservableObject
             }
             tx.Commit();
 
+            var indexById = report.TouchedIds.Count > 0 ? BuildContactIndexMap() : null;
             var uiUpdated = 0;
             foreach (var c in cleaned)
             {
                 if (!report.TouchedIds.Contains(c.Id)) continue;
-                var idx = IndexOfContact(c.Id);
-                if (idx >= 0) Contacts[idx] = c;
+                if (indexById!.TryGetValue(c.Id, out var idx) && idx < Contacts.Count && Contacts[idx].Id == c.Id)
+                    Contacts[idx] = c;
+                else
+                {
+                    var live = IndexOfContact(c.Id);
+                    if (live >= 0) Contacts[live] = c;
+                }
                 uiUpdated++;
                 if (uiUpdated % 250 == 0 || uiUpdated == touchedTotal)
                 {
@@ -1277,6 +1338,8 @@ public partial class MainViewModel : ObservableObject
             var merged = 0;
             foreach (var p in plan.Plans)
             {
+                // Snapshot primary BEFORE the merge so undo can revert collection-union too.
+                var primaryBefore = JsonClone(p.Primary);
                 var result = _mergeEngine.Apply(p);
                 using var tx = _repo.BeginTransaction();
                 _repo.UpdateContact(result.Survivor, tx);
@@ -1285,7 +1348,7 @@ public partial class MainViewModel : ObservableObject
                 _history.RecordUndo(
                     "merge",
                     new { primary = result.Survivor.Id, removed = result.RemovedSecondaries.Select(c => c.Id) },
-                    new { restored = result.RemovedSecondaries.Select(c => c.Id) },
+                    new { primaryBefore, restored = result.RemovedSecondaries.Select(c => c.Id) },
                     $"auto-merge {result.Survivor.DisplayName}");
                 merged++;
                 ReportProgress(
@@ -1484,6 +1547,13 @@ public partial class MainViewModel : ObservableObject
         for (int i = 0; i < Contacts.Count; i++)
             if (Contacts[i].Id == id) return i;
         return -1;
+    }
+
+    private Dictionary<Guid, int> BuildContactIndexMap()
+    {
+        var map = new Dictionary<Guid, int>(Contacts.Count);
+        for (int i = 0; i < Contacts.Count; i++) map[Contacts[i].Id] = i;
+        return map;
     }
 
     private static void StampSourceOnChildren(Contact c, Guid sourceId)

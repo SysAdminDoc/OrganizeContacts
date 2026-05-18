@@ -53,8 +53,28 @@ public sealed class AppSettings
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
         // Atomic write: a crash mid-WriteAllText would otherwise leave a truncated file.
-        var tmp = path + ".tmp";
-        File.WriteAllText(tmp, json);
-        File.Move(tmp, path, overwrite: true);
+        // Use a unique temp suffix so two simultaneous Save() calls (e.g. user mash-clicks the
+        // settings dialog before it's torn down) don't race on the same .tmp path.
+        var tmp = path + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+        try
+        {
+            // Flush + handle close before Move so the OS commits bytes to disk before the
+            // rename — without this a power loss after Move could leave the target with the
+            // bytes never reaching the platter.
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var sw = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
+            {
+                sw.Write(json);
+                sw.Flush();
+                fs.Flush(flushToDisk: true);
+            }
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            // Best-effort cleanup; swallow secondary errors so the original surfaces.
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+            throw;
+        }
     }
 }

@@ -86,17 +86,25 @@ public sealed class JCardImporter : IContactImporter
                     break;
                 case "NOTE": contact.Notes = value; break;
                 case "URL":
-                    if (!string.IsNullOrWhiteSpace(value)) contact.Urls.Add(value!);
+                    if (!string.IsNullOrWhiteSpace(value)) { contact.Urls.Add(value!); seen = true; }
                     break;
                 case "TEL":
-                    contact.Phones.Add(PhoneNumber.Parse(value ?? "", ParsePhoneKind(prop[1])));
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        contact.Phones.Add(PhoneNumber.Parse(value!, ParsePhoneKind(prop[1])));
+                        seen = true;
+                    }
                     break;
                 case "EMAIL":
-                    contact.Emails.Add(new EmailAddress
+                    if (!string.IsNullOrWhiteSpace(value))
                     {
-                        Address = value ?? "",
-                        Kind = ParseEmailKind(prop[1]),
-                    });
+                        contact.Emails.Add(new EmailAddress
+                        {
+                            Address = value!,
+                            Kind = ParseEmailKind(prop[1]),
+                        });
+                        seen = true;
+                    }
                     break;
                 case "UID":
                     contact.Uid = value;
@@ -105,11 +113,21 @@ public sealed class JCardImporter : IContactImporter
                     contact.Rev = value;
                     break;
                 case "CATEGORIES":
+                    // Braces matter: a previous version dropped braces and the inline
+                    // `else if` bound to the inner `if` (dangling-else), making the
+                    // single-string form unreachable. Both branches now clearly belong
+                    // to the outer choice on prop[3].ValueKind.
                     if (prop[3].ValueKind == JsonValueKind.Array)
+                    {
                         foreach (var ce in prop[3].EnumerateArray())
-                            if (ce.ValueKind == JsonValueKind.String) contact.Categories.Add(ce.GetString()!);
+                            if (ce.ValueKind == JsonValueKind.String)
+                                contact.Categories.Add(ce.GetString()!);
+                    }
                     else if (!string.IsNullOrEmpty(value))
-                        foreach (var ct in value!.Split(',')) contact.Categories.Add(ct.Trim());
+                    {
+                        foreach (var ct in value!.Split(','))
+                            contact.Categories.Add(ct.Trim());
+                    }
                     break;
             }
         }

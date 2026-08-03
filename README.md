@@ -2,7 +2,7 @@
 
 ![OrganizeContacts brand banner](branding/organizecontacts-banner.svg)
 
-[![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)](https://github.com/SysAdminDoc/OrganizeContacts/releases)
+[![Version](https://img.shields.io/badge/version-0.3.3-blue.svg)](https://github.com/SysAdminDoc/OrganizeContacts/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d4.svg)](https://github.com/SysAdminDoc/OrganizeContacts)
 [![.NET](https://img.shields.io/badge/.NET-10-512bd4.svg)](https://dotnet.microsoft.com/)
@@ -47,6 +47,22 @@ dotnet run --project src/OrganizeContacts.App
 ```
 
 Requires .NET 10 SDK on Windows 10 19041 or newer.
+
+## Release artifacts
+
+The local release driver publishes the framework-dependent desktop app and creates
+an unsigned MSI, portable zip, CycloneDX SBOM, and SHA-256 manifest:
+
+```powershell
+dotnet tool install --global wix --version 5.0.2
+pwsh -NoLogo -NoProfile -File packaging/Build-Release.ps1
+```
+
+Artifacts are written to `release-artifacts/`. CycloneDX is used when the
+`dotnet-CycloneDX` tool is available; otherwise the driver writes the .NET
+transitive package manifest as the SBOM fallback. The MSI and executable are
+deliberately unsigned in accordance with the repository's no-code-signing policy.
+Pass `-CleanArtifacts` when the generated release directory should be reset first.
 
 ## Project Structure
 

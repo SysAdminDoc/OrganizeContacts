@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="OrganizeContacts"
+      Manufacturer="SysAdminDoc"
+      Version="$(var.ProductVersion)"
+      UpgradeCode="B7E8D2A9-0C7B-4C41-9E4E-9D2D67C6D6EA"
+      Scope="perMachine"
+      Compressed="yes">
+    <SummaryInformation Description="Local-first contact organizer and deduper" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of OrganizeContacts is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="OrganizeContactsIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="OrganizeContactsIcon" />
+
+    <Feature Id="MainFeature" Title="OrganizeContacts" Level="1">
+      <ComponentGroupRef Id="PublishedFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="OrganizeContacts" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="OrganizeContactsProgramsFolder" Name="OrganizeContacts" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="PublishedFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="StartMenuShortcut" Directory="OrganizeContactsProgramsFolder">
+      <Shortcut
+          Id="OrganizeContactsStartMenuShortcut"
+          Name="OrganizeContacts"
+          Target="[INSTALLFOLDER]OrganizeContacts.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="OrganizeContactsIcon" />
+      <RemoveFolder Id="RemoveOrganizeContactsProgramsFolder" On="uninstall" />
+      <RegistryValue
+          Root="HKLM"
+          Key="Software\SysAdminDoc\OrganizeContacts"
+          Name="Installed"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>

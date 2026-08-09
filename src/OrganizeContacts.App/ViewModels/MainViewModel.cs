@@ -37,6 +37,7 @@ public partial class MainViewModel : ObservableObject
     private readonly GoogleCsvWriter _googleCsvWriter = new();
     private readonly OutlookCsvWriter _outlookCsvWriter = new();
     private readonly JCardWriter _jcardWriter = new();
+    private readonly IcsWriter _icsWriter = new();
     private readonly ContactRepository _repo;
     private readonly HistoryStore _history;
     private readonly RollbackService _rollback;
@@ -841,7 +842,7 @@ public partial class MainViewModel : ObservableObject
         var dlg = new SaveFileDialog
         {
             Title = "Export contacts",
-            Filter = "vCard 3.0 (*.vcf)|*.vcf|vCard 4.0 (*.vcf)|*.vcf|Google CSV (*.csv)|*.csv|Outlook CSV (*.csv)|*.csv|jCard (*.jcard)|*.jcard",
+            Filter = "vCard 3.0 (*.vcf)|*.vcf|vCard 4.0 (*.vcf)|*.vcf|Google CSV (*.csv)|*.csv|Outlook CSV (*.csv)|*.csv|jCard (*.jcard)|*.jcard|iCalendar (*.ics)|*.ics",
             FileName = "OrganizeContacts.vcf",
         };
         if (dlg.ShowDialog() != true) return;
@@ -873,6 +874,10 @@ public partial class MainViewModel : ObservableObject
                 case 5:
                     await _jcardWriter.WriteFileAsync(dlg.FileName, snapshot);
                     _history.Audit("export.jcard", payload: $"file={dlg.FileName};count={snapshot.Count}");
+                    break;
+                case 6:
+                    await _icsWriter.WriteFileAsync(dlg.FileName, snapshot);
+                    _history.Audit("export.ics", payload: $"file={dlg.FileName};count={snapshot.Count}");
                     break;
             }
             StatusMessage = $"Exported {snapshot.Count} contact(s) to {Path.GetFileName(dlg.FileName)}.";

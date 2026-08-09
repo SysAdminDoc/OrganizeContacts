@@ -58,8 +58,9 @@ dotnet run --project src/OrganizeContacts.Cli -- convert input.vcf output.jcard
 dotnet run --project src/OrganizeContacts.Cli -- dedupe input.vcf
 ```
 
-Add `--json` to `import`, `convert`/`export`, `dedupe`, `cleanup`, or `version`
-for indented machine-readable output.
+Conversion also supports `.ics`/`.ical` output for yearly birthday and
+anniversary events. Add `--json` to `import`, `convert`/`export`, `dedupe`,
+`cleanup`, or `version` for indented machine-readable output.
 
 ## Release artifacts
 

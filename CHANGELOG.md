@@ -6,6 +6,8 @@ All notable changes to OrganizeContacts will be documented in this file.
 
 - Added `--json` output to the headless CLI's import, conversion, dedupe,
   cleanup, and version commands for scriptable local workflows.
+- Added iCalendar export for recurring birthday and anniversary events in the
+  desktop export dialog and headless conversion command.
 
 ## v0.3.3 — 2026-08-03 — Release hardening
 

@@ -79,7 +79,7 @@ public static class Program
 
             Usage:
               oc import  <input>                  Read INPUT and report its contact count.
-              oc convert <input> <output>          Read INPUT (vCard / Google CSV / Outlook CSV / LDIF / jCard) and write OUTPUT (vCard / Google CSV / Outlook CSV / jCard).
+              oc convert <input> <output>          Read INPUT (vCard / Google CSV / Outlook CSV / LDIF / jCard) and write OUTPUT (vCard / Google CSV / Outlook CSV / jCard / iCalendar).
               oc dedupe  <input>...                 Print duplicate groups across one-or-more INPUT files (no writing).
               oc cleanup <input> <output>           Run intra-contact dedupe + normalize + canonicalize and write the cleaned contacts.
               oc version                            Print the version.
@@ -250,6 +250,10 @@ public static class Program
             case ".jcf":
             case ".json":
                 await new JCardWriter().WriteFileAsync(path, contacts);
+                break;
+            case ".ics":
+            case ".ical":
+                await new IcsWriter().WriteFileAsync(path, contacts);
                 break;
             case ".csv" when path.IndexOf("outlook", StringComparison.OrdinalIgnoreCase) >= 0:
                 await new OutlookCsvWriter().WriteFileAsync(path, contacts);

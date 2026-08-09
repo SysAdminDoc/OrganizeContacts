@@ -2,6 +2,11 @@
 
 All notable changes to OrganizeContacts will be documented in this file.
 
+## Unreleased
+
+- Added `--json` output to the headless CLI's import, conversion, dedupe,
+  cleanup, and version commands for scriptable local workflows.
+
 ## v0.3.3 — 2026-08-03 — Release hardening
 
 - Added a reproducible local release driver that creates the framework-dependent

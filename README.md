@@ -48,6 +48,19 @@ dotnet run --project src/OrganizeContacts.App
 
 Requires .NET 10 SDK on Windows 10 19041 or newer.
 
+## Headless CLI
+
+The `oc` project provides local, scriptable conversion, dedupe, cleanup, and
+import commands:
+
+```powershell
+dotnet run --project src/OrganizeContacts.Cli -- convert input.vcf output.jcard
+dotnet run --project src/OrganizeContacts.Cli -- dedupe input.vcf
+```
+
+Add `--json` to `import`, `convert`/`export`, `dedupe`, `cleanup`, or `version`
+for indented machine-readable output.
+
 ## Release artifacts
 
 The local release driver publishes the framework-dependent desktop app and creates

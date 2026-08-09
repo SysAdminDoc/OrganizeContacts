@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\OrganizeContacts.Core\OrganizeContacts.Core.csproj" />
+    <ProjectReference Include="..\..\src\OrganizeContacts.Cli\OrganizeContacts.Cli.csproj" />
   </ItemGroup>
 
 </Project>

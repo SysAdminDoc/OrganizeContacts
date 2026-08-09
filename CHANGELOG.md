@@ -2,6 +2,11 @@
 
 All notable changes to OrganizeContacts will be documented in this file.
 
+## v0.3.5 — 2026-08-09 — Release metadata sync
+
+- Synchronized the application, CLI, manifest, README badge, and in-app
+  version to 0.3.5 after draining the active roadmap.
+
 ## v0.3.4 — 2026-08-09 — Roadmap completion pass
 
 - Added `--json` output to the headless CLI's import, conversion, dedupe,

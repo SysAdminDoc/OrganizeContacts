@@ -8,7 +8,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>oc</AssemblyName>
     <RootNamespace>OrganizeContacts.Cli</RootNamespace>
-    <Version>0.3.4</Version>
+    <Version>0.3.5</Version>
   </PropertyGroup>
 
   <ItemGroup>

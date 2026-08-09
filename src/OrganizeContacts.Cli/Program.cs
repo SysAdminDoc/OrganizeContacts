@@ -96,6 +96,7 @@ public static class Program
               .csv                    Google CSV or Outlook CSV (auto-detected by header)
               .ldif                   Thunderbird/Mozilla LDIF
               .jcard / .jcf / .json   jCard (RFC 7095)
+              .db / .sqlite           Android contacts2.db
             """);
         return ExitUsage;
     }
@@ -321,6 +322,7 @@ public static class Program
             ".vcf" or ".vcard" => new VCardImporter(),
             ".ldif" => new LdifImporter(),
             ".jcard" or ".jcf" or ".json" => new JCardImporter(),
+            ".db" or ".sqlite" or ".sqlite3" => new AndroidContactsDbImporter(),
             ".csv" => DetectCsvImporter(path),
             _ => throw new InvalidOperationException($"unrecognised input extension: {ext}"),
         };

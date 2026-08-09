@@ -14,6 +14,7 @@ OrganizeContacts is a Windows desktop app for importing, reviewing, cleaning, de
 - Import a folder of supported contact files or choose individual files.
 - Preview imports before committing changes.
 - Import vCard, Google CSV, Outlook CSV, LDIF, jCard, and CardDAV address books.
+- Import Android contacts2.db SQLite exports, including groups and embedded photos.
 - Review duplicate groups with match reasons and confidence.
 - Run cleanup for phone, email, URL, category, photo, and regex-based field cleanup.
 - Export contacts to vCard, Google CSV, Outlook CSV, or jCard.

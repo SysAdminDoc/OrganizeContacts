@@ -32,6 +32,7 @@ public partial class MainViewModel : ObservableObject
     private readonly OutlookCsvImporter _outlookCsv = new();
     private readonly LdifImporter _ldif = new();
     private readonly JCardImporter _jcard = new();
+    private readonly AndroidContactsDbImporter _androidDb = new();
     private readonly ContactImportCatalog _importCatalog;
     private readonly VCardWriter _vcardWriter = new();
     private readonly GoogleCsvWriter _googleCsvWriter = new();
@@ -104,6 +105,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ImportOutlookCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ImportLdifCommand))]
     [NotifyCanExecuteChangedFor(nameof(ImportJCardCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ImportAndroidDbCommand))]
     [NotifyCanExecuteChangedFor(nameof(ImportCardDavCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportVCardCommand))]
     [NotifyCanExecuteChangedFor(nameof(RescanDuplicatesCommand))]
@@ -233,6 +235,7 @@ public partial class MainViewModel : ObservableObject
             new ContactImportFormat(_outlookCsv, SourceKind.OutlookCsv),
             new ContactImportFormat(_ldif, SourceKind.Thunderbird),
             new ContactImportFormat(_jcard, SourceKind.File),
+            new ContactImportFormat(_androidDb, SourceKind.AndroidDatabase),
         });
 
         _repo = new ContactRepository(Path.Combine(_dataDir, "contacts.sqlite"));
@@ -343,6 +346,9 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportJCardAsync() => await RunImport("jCard (*.jcard;*.jcf;*.json)|*.jcard;*.jcf;*.json|All files (*.*)|*.*", _jcard, SourceKind.File);
+
+    [RelayCommand(CanExecute = nameof(NotBusy))]
+    private async Task ImportAndroidDbAsync() => await RunImport("Android contacts database (*.db;*.sqlite)|*.db;*.sqlite|All files (*.*)|*.*", _androidDb, SourceKind.AndroidDatabase);
 
     [RelayCommand(CanExecute = nameof(NotBusy))]
     private async Task ImportFolderAsync()

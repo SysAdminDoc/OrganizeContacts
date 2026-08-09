@@ -15,6 +15,8 @@ All notable changes to OrganizeContacts will be documented in this file.
 - Added deterministic malformed-input fuzz coverage and a golden vCard corpus
   round-trip test for parser safety and field retention.
 - Added an Android-style vCard 2.1 base64-photo round-trip regression test.
+- Added read-only Android contacts2.db SQLite import with names, phones, email,
+  addresses, events, groups, photos, and unknown mimetype preservation.
 - Added a bounded local diagnostics log for unhandled desktop/task exceptions;
   diagnostic data stays on the machine and is never sent as telemetry.
 - Added round-trip field-difference reports to CLI conversion output for vCard,

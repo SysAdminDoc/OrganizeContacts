@@ -114,6 +114,11 @@
                                         Command="{Binding ImportJCardCommand}"
                                         ToolTip="Read a jCard (RFC 7095) JSON file"
                                         AutomationProperties.Name="Import jCard" />
+                                <Button Content="Android DB..."
+                                        Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ImportAndroidDbCommand}"
+                                        ToolTip="Read an Android contacts2.db SQLite export"
+                                        AutomationProperties.Name="Import Android contacts database" />
                             </WrapPanel>
                         </StackPanel>
                     </Border>

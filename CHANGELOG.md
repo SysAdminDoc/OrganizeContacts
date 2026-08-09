@@ -8,6 +8,8 @@ All notable changes to OrganizeContacts will be documented in this file.
   cleanup, and version commands for scriptable local workflows.
 - Added iCalendar export for recurring birthday and anniversary events in the
   desktop export dialog and headless conversion command.
+- Added a deterministic, dependency-free `oc benchmark` command for measuring
+  duplicate detection on synthetic contact pairs.
 
 ## v0.3.3 — 2026-08-03 — Release hardening
 

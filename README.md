@@ -56,6 +56,7 @@ import commands:
 ```powershell
 dotnet run --project src/OrganizeContacts.Cli -- convert input.vcf output.jcard
 dotnet run --project src/OrganizeContacts.Cli -- dedupe input.vcf
+dotnet run --project src/OrganizeContacts.Cli -- benchmark 5000 3
 ```
 
 Conversion also supports `.ics`/`.ical` output for yearly birthday and

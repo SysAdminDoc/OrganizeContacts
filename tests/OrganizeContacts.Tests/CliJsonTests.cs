@@ -44,4 +44,30 @@ public sealed class CliJsonTests
             try { File.Delete(path); } catch { }
         }
     }
+
+    [Fact]
+    public async Task Benchmark_json_output_reports_the_requested_workload()
+    {
+        var originalOut = Console.Out;
+        var output = new StringWriter();
+        Console.SetOut(output);
+        try
+        {
+            var exitCode = await Program.RunAsync(new[] { "benchmark", "--json", "20", "2" });
+
+            Assert.Equal(0, exitCode);
+            using var document = JsonDocument.Parse(output.ToString());
+            var root = document.RootElement;
+            Assert.Equal("benchmark", root.GetProperty("command").GetString());
+            Assert.Equal(20, root.GetProperty("contacts").GetInt32());
+            Assert.Equal(2, root.GetProperty("iterations").GetInt32());
+            Assert.Equal(10, root.GetProperty("duplicateGroups").GetInt32());
+            Assert.True(root.GetProperty("averageMilliseconds").GetDouble() >= 0);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            output.Dispose();
+        }
+    }
 }

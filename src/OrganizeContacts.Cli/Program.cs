@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using OrganizeContacts.Core.Cleanup;
@@ -56,6 +58,7 @@ public static class Program
             "dedupe"  => await CmdDedupe(commandArgs[1..], json),
             "cleanup" => await CmdCleanup(commandArgs[1..], json),
             "convert" => await CmdConvert(commandArgs[1..], json),
+            "benchmark" => await CmdBenchmark(commandArgs[1..], json),
             "version" or "--version" or "-v" => PrintVersion(json),
             "help" or "--help" or "-h" => PrintUsage(),
             _ => PrintUsage(),
@@ -82,6 +85,7 @@ public static class Program
               oc convert <input> <output>          Read INPUT (vCard / Google CSV / Outlook CSV / LDIF / jCard) and write OUTPUT (vCard / Google CSV / Outlook CSV / jCard / iCalendar).
               oc dedupe  <input>...                 Print duplicate groups across one-or-more INPUT files (no writing).
               oc cleanup <input> <output>           Run intra-contact dedupe + normalize + canonicalize and write the cleaned contacts.
+              oc benchmark [count] [iterations]     Measure duplicate detection on deterministic synthetic contacts.
               oc version                            Print the version.
               oc help                               Print this message.
 
@@ -203,6 +207,84 @@ public static class Program
         if (args.Length != 2) return PrintUsage();
         // Treat as alias for convert
         return await CmdConvert(args, json);
+    }
+
+    private static Task<int> CmdBenchmark(string[] args, bool json)
+    {
+        if (args.Length > 2) return Task.FromResult(PrintUsage());
+
+        var count = ParseBenchmarkArgument(args, 0, 1_000, "contact count", 2, 100_000);
+        var iterations = ParseBenchmarkArgument(args, 1, 3, "iteration count", 1, 100);
+        var engine = new DedupEngine();
+
+        // Warm up JIT and the normalizer before collecting timings.
+        _ = engine.Find(CreateBenchmarkContacts(Math.Min(count, 100)));
+
+        long elapsedTicks = 0;
+        var groupCount = 0;
+        for (var i = 0; i < iterations; i++)
+        {
+            var contacts = CreateBenchmarkContacts(count);
+            var stopwatch = Stopwatch.StartNew();
+            var groups = engine.Find(contacts);
+            stopwatch.Stop();
+            elapsedTicks += stopwatch.ElapsedTicks;
+            groupCount = groups.Count;
+        }
+
+        var averageMilliseconds = elapsedTicks * 1_000.0 / Stopwatch.Frequency / iterations;
+        if (json)
+        {
+            WriteJson(new
+            {
+                command = "benchmark",
+                contacts = count,
+                iterations,
+                duplicateGroups = groupCount,
+                averageMilliseconds,
+            });
+        }
+        else
+        {
+            Console.WriteLine($"dedupe benchmark: {count:N0} contacts, {iterations} iteration(s)");
+            Console.WriteLine($"duplicate groups: {groupCount:N0}");
+            Console.WriteLine($"average: {averageMilliseconds:N2} ms");
+        }
+
+        return Task.FromResult(ExitOk);
+    }
+
+    private static int ParseBenchmarkArgument(
+        string[] args,
+        int index,
+        int defaultValue,
+        string label,
+        int minimum,
+        int maximum)
+    {
+        if (args.Length <= index) return defaultValue;
+        if (!int.TryParse(args[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ||
+            value < minimum || value > maximum)
+            throw new ArgumentException($"{label} must be an integer from {minimum:N0} to {maximum:N0}.");
+        return value;
+    }
+
+    private static List<Contact> CreateBenchmarkContacts(int count)
+    {
+        var contacts = new List<Contact>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var identity = i / 2;
+            var contact = new Contact
+            {
+                Organization = $"Benchmark Org {identity % 25}",
+            };
+            var phone = PhoneNumber.Parse($"555-{identity % 10_000_000:0000000}");
+            phone.E164 = $"+1555{identity % 10_000_000:0000000}";
+            contact.Phones.Add(phone);
+            contacts.Add(contact);
+        }
+        return contacts;
     }
 
     // ----- helpers -----

@@ -2,7 +2,7 @@
 
 All notable changes to OrganizeContacts will be documented in this file.
 
-## Unreleased
+## v0.3.4 — 2026-08-09 — Roadmap completion pass
 
 - Added `--json` output to the headless CLI's import, conversion, dedupe,
   cleanup, and version commands for scriptable local workflows.

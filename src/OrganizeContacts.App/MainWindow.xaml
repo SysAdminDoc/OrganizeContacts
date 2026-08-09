@@ -58,7 +58,7 @@
                                 <TextBlock Text="OrganizeContacts"
                                            FontSize="19"
                                            FontWeight="SemiBold" />
-                                <TextBlock Text="v0.3.3"
+                                <TextBlock Text="v0.3.4"
                                            Margin="10,4,0,0"
                                            FontSize="11"
                                            Foreground="{DynamicResource Subtext0Brush}" />

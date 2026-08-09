@@ -12,6 +12,8 @@ All notable changes to OrganizeContacts will be documented in this file.
   duplicate detection on synthetic contact pairs.
 - Enabled recycling virtualization for contact/group lists and row/column
   virtualization for preview grids to keep large address books responsive.
+- Added deterministic malformed-input fuzz coverage and a golden vCard corpus
+  round-trip test for parser safety and field retention.
 
 ## v0.3.3 — 2026-08-03 — Release hardening
 

@@ -63,6 +63,9 @@ Conversion also supports `.ics`/`.ical` output for yearly birthday and
 anniversary events. Add `--json` to `import`, `convert`/`export`, `dedupe`,
 `cleanup`, or `version` for indented machine-readable output.
 
+Crash diagnostics are kept locally at %LOCALAPPDATA%/OrganizeContacts/diagnostics.log;
+they are never uploaded or sent as telemetry.
+
 ## Release artifacts
 
 The local release driver publishes the framework-dependent desktop app and creates

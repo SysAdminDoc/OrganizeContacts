@@ -71,6 +71,27 @@ public class VCardWriterTests
     }
 
     [Fact]
+    public void Round_trips_android_style_base64_photo()
+    {
+        var photo = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x01, 0x02, 0x03 };
+        var input = $"""
+            BEGIN:VCARD
+            VERSION:2.1
+            FN:Android Contact
+            PHOTO;ENCODING=BASE64;TYPE=JPEG:{Convert.ToBase64String(photo)}
+            END:VCARD
+            """;
+
+        var importer = new VCardImporter();
+        var parsed = Assert.Single(importer.ParseAll(input));
+        var output = new VCardWriter().Write(parsed);
+        var roundTripped = Assert.Single(importer.ParseAll(output));
+
+        Assert.Equal(photo, roundTripped.PhotoBytes);
+        Assert.Equal("image/jpeg", roundTripped.PhotoMimeType);
+    }
+
+    [Fact]
     public void Folds_long_lines_to_75_octets()
     {
         var c = new Contact

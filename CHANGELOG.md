@@ -14,6 +14,7 @@ All notable changes to OrganizeContacts will be documented in this file.
   virtualization for preview grids to keep large address books responsive.
 - Added deterministic malformed-input fuzz coverage and a golden vCard corpus
   round-trip test for parser safety and field retention.
+- Added an Android-style vCard 2.1 base64-photo round-trip regression test.
 
 ## v0.3.3 — 2026-08-03 — Release hardening
 

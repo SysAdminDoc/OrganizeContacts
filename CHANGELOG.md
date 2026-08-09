@@ -10,6 +10,8 @@ All notable changes to OrganizeContacts will be documented in this file.
   desktop export dialog and headless conversion command.
 - Added a deterministic, dependency-free `oc benchmark` command for measuring
   duplicate detection on synthetic contact pairs.
+- Enabled recycling virtualization for contact/group lists and row/column
+  virtualization for preview grids to keep large address books responsive.
 
 ## v0.3.3 — 2026-08-03 — Release hardening
 

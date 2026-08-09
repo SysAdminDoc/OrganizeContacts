@@ -263,6 +263,8 @@
                                  BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                 ScrollViewer.CanContentScroll="True"
                                  AutomationProperties.Name="Contacts list">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="{x:Type m:Contact}">
@@ -371,6 +373,9 @@
                                  Background="Transparent"
                                  BorderThickness="0"
                                  HorizontalContentAlignment="Stretch"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                 ScrollViewer.CanContentScroll="True"
                                  AutomationProperties.Name="Duplicate groups">
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="{x:Type m:DuplicateGroup}">

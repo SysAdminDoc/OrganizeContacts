@@ -38,6 +38,8 @@
                       BorderThickness="0"
                       IsReadOnly="True"
                       EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      ScrollViewer.CanContentScroll="True"
                       AutomationProperties.Name="Preview items">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="File"   Binding="{Binding File}"   Width="260" />

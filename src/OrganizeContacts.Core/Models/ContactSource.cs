@@ -9,9 +9,9 @@ public enum SourceKind
     OutlookPst,
     CardDav,
     AndroidVcf,
-    AndroidDatabase,
     Thunderbird,
     Manual,
+    AndroidDatabase,
 }
 
 public sealed class ContactSource

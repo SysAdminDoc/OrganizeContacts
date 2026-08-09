@@ -22,6 +22,14 @@ public class StorageTests : IDisposable
     }
 
     [Fact]
+    public void Source_kind_values_remain_stable_for_persisted_databases()
+    {
+        Assert.Equal(7, (int)SourceKind.Thunderbird);
+        Assert.Equal(8, (int)SourceKind.Manual);
+        Assert.Equal(9, (int)SourceKind.AndroidDatabase);
+    }
+
+    [Fact]
     public void Round_trips_contact_with_children()
     {
         var src = _repo.UpsertSource(new ContactSource { Kind = SourceKind.File, Label = "test" });

@@ -21,6 +21,8 @@ All notable changes to OrganizeContacts will be documented in this file.
   diagnostic data stays on the machine and is never sent as telemetry.
 - Added round-trip field-difference reports to CLI conversion output for vCard,
   CSV, and jCard exports.
+- Preserved the numeric values of existing persisted source kinds when adding
+  Android contacts database imports.
 
 ## v0.3.3 — 2026-08-03 — Release hardening
 

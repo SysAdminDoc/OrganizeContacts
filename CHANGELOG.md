@@ -17,6 +17,8 @@ All notable changes to OrganizeContacts will be documented in this file.
 - Added an Android-style vCard 2.1 base64-photo round-trip regression test.
 - Added a bounded local diagnostics log for unhandled desktop/task exceptions;
   diagnostic data stays on the machine and is never sent as telemetry.
+- Added round-trip field-difference reports to CLI conversion output for vCard,
+  CSV, and jCard exports.
 
 ## v0.3.3 — 2026-08-03 — Release hardening
 

@@ -66,6 +66,10 @@ anniversary events. Add `--json` to `import`, `convert`/`export`, `dedupe`,
 Crash diagnostics are kept locally at %LOCALAPPDATA%/OrganizeContacts/diagnostics.log;
 they are never uploaded or sent as telemetry.
 
+For vCard, CSV, and jCard conversions, the CLI re-imports the output and
+reports contact-count and field-level round-trip differences. iCalendar output
+is a date-event projection and is not treated as a contact round trip.
+
 ## Release artifacts
 
 The local release driver publishes the framework-dependent desktop app and creates

@@ -110,10 +110,14 @@ public static class Program
 
         var input = await ReadAllAsync(inputPath);
         await WriteAllAsync(outputPath, input);
+        var report = await TryBuildExportReportAsync(outputPath, input);
         if (json)
-            WriteJson(new { command = "convert", input = inputPath, output = outputPath, contacts = input.Count });
+            WriteJson(new { command = "convert", input = inputPath, output = outputPath, contacts = input.Count, report });
         else
+        {
             Console.WriteLine($"converted {input.Count} contact(s) -> {outputPath}");
+            if (report is not null) Console.WriteLine(report.Summary);
+        }
         return ExitOk;
     }
 
@@ -295,6 +299,18 @@ public static class Program
         var list = new List<Contact>();
         await foreach (var c in importer.ReadAsync(path)) list.Add(c);
         return list;
+    }
+
+    private static async Task<ExportReport?> TryBuildExportReportAsync(
+        string outputPath,
+        IReadOnlyList<Contact> input)
+    {
+        var ext = Path.GetExtension(outputPath).ToLowerInvariant();
+        if (ext is not (".vcf" or ".vcard" or ".csv" or ".jcard" or ".jcf" or ".json"))
+            return null;
+
+        var output = await ReadAllAsync(outputPath);
+        return ExportReportComparer.Compare(input, output);
     }
 
     private static IContactImporter ImporterFor(string path)

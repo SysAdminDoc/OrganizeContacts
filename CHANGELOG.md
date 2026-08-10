@@ -388,3 +388,304 @@ Initial scaffold release.
   - `DedupEngine` with exact-match strategy on normalized name + phone last-7.
   - SQLite `HistoryStore` scaffold (Microsoft.Data.Sqlite).
 - Repo bootstrap: LICENSE (MIT), README with shields.io badges, CHANGELOG, ROADMAP, branding prompts, release workflow.
+
+## Roadmap archive — 2026-08-10 — ROADMAP.md
+
+<details>
+<summary>Original roadmap snapshot</summary>
+
+```markdown
+# OrganizeContacts Roadmap
+
+Research version: 2026-05-07
+Scope: local-first Windows contact organizer, importer, deduper, merge workstation, and reversible cleanup tool.
+
+This roadmap supersedes the original milestone sketch while preserving the shipped v0.1.0 baseline and the project philosophy from the README and local working notes. Every proposed item is traceable to local evidence or an external source in the appendices.
+
+## State of the Repo
+
+### What exists today
+
+- Native WPF desktop shell targeting `net10.0-windows`, with `OrganizeContacts.Core` targeting `net10.0`.
+- MIT license, Windows-first release workflow, and a local-first privacy promise: no cloud, no account, no telemetry.
+- vCard importer scaffold that reads `BEGIN:VCARD` / `END:VCARD`, unfolds continuation lines, decodes quoted-printable as UTF-8, and maps common 3.0 fields into in-memory `Contact` objects.
+- Exact duplicate grouping by normalized display name, phone last 7 digits, and lowercased email.
+- SQLite audit/undo schema scaffold; only audit rows are currently written.
+- WPF UI for importing one vCard file, viewing contacts, viewing duplicate groups, rescanning, and clearing memory state.
+
+### What is claimed but not implemented
+
+- The README claims import breadth across vCard 2.1/3.0/4.0, Google CSV, Outlook PST, iCloud CardDAV, Android `.vcf`, and Thunderbird MAB. Only baseline `.vcf` import exists.
+- The README claims transparent fuzzy rules, side-by-side field diff, field-level merge, and full undo. Current matching is exact and merge UI does not exist.
+- The roadmap claims libphonenumber, Metaphone, Levenshtein, photo dedupe, CardDAV, plugin SDK, localization, installer signing, and auto-update. None are present yet.
+- Contacts are not persisted; imports are lost when the app closes.
+
+### Hard constraints
+
+- License: MIT for this repo. Roadmap items that introduce AGPL/GPL, commercial SDKs, or non-permissive image libraries require explicit license review before implementation.
+- Platform: Windows 10 19041+ today, WPF shell, .NET 10 SDK/runtime.
+- Architecture: keep `OrganizeContacts.Core` UI-free so a future Avalonia or CLI shell can reuse import, storage, match, and merge logic.
+- Trust model: no cloud processing, no silent telemetry, no destructive merge without preview or undo.
+
+### Repository hygiene gaps
+
+- No test project, no parser corpus, no fuzz/property tests, no issue templates, no `CONTRIBUTING.md`, no `SECURITY.md`, and no `global.json`.
+- `Microsoft.Data.Sqlite` is pinned to 9.0.0 while NuGet current stable is 10.0.7; `CommunityToolkit.Mvvm` is pinned to 8.4.0 while current stable is 8.4.2.
+- The release workflow only publishes a framework-dependent zip; it does not run tests, sign artifacts, generate an installer, or publish SBOM/checksums beyond SHA-256.
+
+## Strategic Positioning
+
+OrganizeContacts should not try to become a full CRM, cloud address book, or social enrichment service. The defensible lane is narrower and stronger:
+
+- Local-first cleanup for messy exports from many sources.
+- Standards-aware import/export with round-trip fidelity and no data loss.
+- Transparent duplicate evidence so users can understand and tune matching.
+- Reversible merge workflow with dry-run, source attribution, and audit history.
+- Power-user cleanup operations that built-in and commercial tools hide or paywall.
+
+## Competitor Snapshot
+
+Snapshot source: GitHub API and public pages on 2026-05-07. "Maintainer signal" lists top contributors or published maintainers when available, not a formal staffing count.
+
+| Project/product | Type | Stars/current signal | Last push/release signal | Maintainer signal | Relevant lesson | Sources |
+|---|---:|---:|---:|---|---|---|
+| Nextcloud Contacts | OSS web app | 621 stars | pushed 2026-05-07 | Nextcloud Groupware team | Shared address books, app integration, duplicate aggregation request, nested category requests. | S11-S16 |
+| Fossify Contacts | OSS Android | 782 stars | release 1.6.0 on 2026-01-30 | Fossify community | Privacy-first mobile contacts need search, groups, export, themes, and sync affordances. | S17 |
+| CardBook | OSS Thunderbird add-on | 66k+ users on Thunderbird add-ons | version 102.4 on 2025-12-04 | Philippe V. | vCard/CardDAV depth, categories, duplicate merge, Gmail tags, photos. | S18, S19 |
+| Duplicate Contacts Manager | OSS Thunderbird add-on | 25 stars | pushed 2026-04-19 | DDvO, stefmorp | Best direct evidence for side-by-side field comparison, match explanations, subset delete, and configurable ignored fields. | S20 |
+| kontakt-schnabel | OSS CLI | 0 stars but recent | pushed 2026-03-22 | single maintainer | Strong local pipeline: import, classify, normalize, sanitize, match, dedup, export, undo, SQLite sessions, tests. | S22 |
+| vcardtools | OSS CLI | 59 stars | pushed 2024-11-08 | mbideau plus contributors | vCard 2.1->3.0 conversion, fuzzy matching options, field fixes, functional test corpus. | S21 |
+| khard | OSS CLI | 662 stars | pushed 2026-04-29 | lucc plus contributors | vCard interoperability is fragile; read-only workflows are safer across Android/iOS. | S23 |
+| vdirsyncer | OSS CLI sync | 1818 stars | pushed 2026-04-07 | pimutils community | Local vdir storage plus server sync is a proven offline-first contact/calendar pattern. | S24 |
+| Radicale | OSS CardDAV server | 4630 stars | v3.7.2 on 2026-04-29 | multiple maintainers | Small plugin-extensible CardDAV server, filesystem storage, TLS/auth/access-control patterns. | S25 |
+| Baikal | OSS CardDAV server | 3149 stars | pushed 2026-05-02 | volunteer maintainers | Lightweight CardDAV server on sabre/dav; upgrade docs and password hashing issue are roadmap signals. | S26 |
+| Monica | OSS personal CRM | 24616 stars | pushed 2026-04-24 | two core maintainers plus community | Contacts can grow into relationships, notes, labels, reminders, multi-user, i18n; most is out of scope for v1. | S27 |
+| Cardamum | OSS CLI | 23 stars | pushed 2026-02-24 | Pimalaya | CardDAV/Vdir CLI with JSON output, keyring/command credential storage, OAuth configuration. | S28 |
+| EteSync DAV | OSS sync bridge | 338 stars | pushed 2026-01-08 | EteSync community | Local DAV adapter, localhost UI, data dirs, autostart, OS-specific client setup, signing requests. | S29 |
+| DAVx5 | OSS/commercial Android sync | public commercial app | active docs | DAVx5 team | Wide field support, vCard3 categories, vCard4 groups, photos, shared read-only books, WebDAV Push. | S30, S50 |
+| Contacts+ | Commercial SaaS | paid tiers | docs updated 2025 | vendor | Duplicates, cleanup, backups/history, updates, sync limits, and automation are premium features. | S31, S32 |
+| Covve | Commercial SaaS | paid tiers | active pricing | vendor | Scanning, groups, notes, exports, CRM integrations, AI lead research are monetized. | S33 |
+| CopyTrans Contacts | Commercial desktop | active guides | updated 2025 | vendor | Device/cloud import/export breadth and PC editing are high-value desktop workflows. | S34 |
+| Cisdem ContactsMate | Commercial desktop | active guide | updated 2025 | vendor | Account-level duplicate scans, conflict groups, "Fix All", and trash-based recovery. | S35 |
+| Google/Apple/Outlook built-ins | Platform tools | bundled | current help docs | platform vendors | Merge/fix exists but is opaque, limited across accounts, and often not truly destructive merge. | S05-S10 |
+
+## Decision Framework
+
+Impact:
+
+- 5 = central to trust, data retention, or core dedupe value.
+- 4 = frequently requested parity or high workflow leverage.
+- 3 = valuable once core workflow exists.
+- 2 = niche or mostly developer/operator value.
+- 1 = not aligned or low user value.
+
+Effort:
+
+- 1 = small local code/docs change.
+- 2 = contained module plus tests.
+- 3 = multi-module feature.
+- 4 = substantial architecture or UX surface.
+- 5 = high complexity, sync/protocol/security/legal risk.
+
+Tiers:
+
+- Now: should land before the next credible public release.
+- Next: follows once persistence, parser fidelity, and merge safety are stable.
+- Later: useful, but not on the critical path to a trustworthy deduper.
+- Under Consideration: possible, but needs research, dependency validation, or demand proof.
+- Rejected: contradicts local-first scope, license posture, or trust model.
+
+## Prioritized Roadmap
+
+### Now
+
+### Next
+
+### Later
+
+### Under Consideration
+
+## Rejected
+
+| Idea | Sources | Reason |
+|---|---|---|
+| Default cloud upload for matching or enrichment | L01, S31-S33 | Contradicts the core local-first promise. |
+| Silent telemetry or contact analytics | L01, S27 | Contradicts the no-telemetry trust model. |
+| Irreversible bulk merge/delete | S20, S22, S32, S35 | Directly conflicts with reversible cleanup and user trust. |
+| Using AGPL/GPL code inside the MIT core without isolation | S25-S27 | License mismatch; can be studied but not embedded casually. |
+| Commercial PST SDK by default without a fallback path | L02, S36 | Licensing and redistribution risk; evaluate only behind an abstraction. |
+| Social scraping of LinkedIn/GitHub by default | L02, S31-S33 | Privacy, terms, and scope risk; keep any enrichment local and opt-in. |
+| Full CRM relationship management before v1 | S27 | Valuable in Monica, but it dilutes the dedupe/import mission. |
+| Mobile write-sync before desktop merge safety | S30, S50 | Multiplies conflict risk before local model and undo are trustworthy. |
+| AI-generated contact updates from the web | S31-S33 | Cloud dependence and hallucination risk are misaligned with reliable cleanup. |
+| Auto-deleting low-information contacts without preview | S20, S22, S35 | Even "empty" or "stub" contacts can contain user-meaningful context. |
+
+## Raw Feature Harvest and Prioritization
+
+Abbreviations: I = impact, E = effort, R = risk, N = novelty. Fit is "Y", "N", or "Maybe".
+
+| ID | Feature | Category | Prevalence | Sources | Fit | I | E | R | Depends on | N | Tier | Placement reason |
+|---|---|---|---|---|---:|---:|---:|---|---|---|---|---|
+
+## Status snapshot (2026-05-07)
+
+- **Now tier (12 / 12)** — shipped in v0.2.0.
+- **Next tier (10 / 10)** — shipped in v0.3.0.
+- **Later tier (3 / 10)** — LDIF (#2), CLI (#6), jCard (#7) shipped in v0.3.0; the remaining seven are explicitly deferred to v0.4 with the rationale recorded inline.
+- **Under Consideration / Rejected** — unchanged; the active-learning scorer, business-card OCR, multi-user collab, WebDAV Push, and social enrichment remain gated by the criteria stated in this file.
+
+The Release 0.2 + 0.3 goals from the Delivery Sequence below have both shipped.
+
+## Delivery Sequence
+
+### Release 0.2 - Trustworthy local data and vCard
+
+- Persistent contacts/sources/imports with migrations.
+- Parser/writer decision and implementation for vCard 2.1/3.0/4.0.
+- Golden corpus and parser fuzz/property tests.
+- Import preview, dry-run report, UID/REV idempotence, rollback snapshot.
+- Source/account attribution in data model and UI.
+- libphonenumber normalization, email canonicalization, and name normalization.
+
+### Release 0.3 - Transparent duplicate review
+
+- Blocking and weighted duplicate scoring.
+- Match explanations and threshold profiles.
+- Side-by-side merge UI with field cherry-pick.
+- Undo journal, audit viewer, and restore.
+- Accessibility pass for keyboard, focus, screen reader names, high contrast basics.
+
+### Release 0.4 - Batch cleanup and export
+
+- Intra-contact field dedupe and sanitize commands.
+- Batch normalize, regex edit, saved filters, and review queues.
+- Google/Outlook CSV importers and custom mapping.
+- vCard/CSV export with round-trip tests and export report.
+- Local diagnostics, source-specific migration docs, and OSS contribution docs.
+
+### Release 0.5 - Photos and sync sources
+
+- Photo parse/preserve/export, EXIF stripping, size limits, and optional perceptual hash matching.
+- CardDAV read-only import with discovery, ETags, credential vault, and conflict-safe local snapshots.
+- Android `.vcf` photo round-trip and Thunderbird/CardBook migration helpers if core vCard coverage is stable.
+
+### Release 1.0 - Hardened Windows release
+
+- Installer plus portable zip.
+- Authenticode signing, SBOM, dependency scan, checksums, release notes, and upgrade guide.
+- Performance benchmarks for large address books.
+- Stable plugin-facing importer/exporter abstractions, but no public plugin SDK until contracts are proven.
+
+## Category Coverage Audit
+
+- Security: credential vault, image parser limits, dependency scanning, SBOM, signed releases, security policy.
+- Accessibility: keyboard merge flow, screen reader names, high contrast, destructive action confirmations.
+- i18n/l10n: region-aware phone parsing now; UI localization later.
+- Observability/telemetry: local audit/history/diagnostics only; telemetry rejected.
+- Testing: parser corpus, fuzz tests, unit/integration tests, benchmarks.
+- Docs: migration recipes, rule explanations, contributing/security docs.
+- Distribution/packaging: installer, portable zip, signing, checksums, SBOM, upgrade notes.
+- Plugin ecosystem: later, after core interfaces stabilize.
+- Mobile: Android `.vcf` round-trip next; mobile companion later.
+- Offline/resilience: local-first persistence, snapshots, undo, no cloud matching.
+- Multi-user/collab: under consideration only after LAN/CardDAV server work.
+- Migration paths: vCard, CSV, CardDAV, Outlook, Thunderbird, Android.
+- Upgrade strategy: migrations, `global.json`, package update policy, release workflow hardening.
+
+## Self-Audit
+
+- Every roadmap item references local evidence or source IDs listed below.
+- Rejected items are explicit and do not reappear in accepted tiers.
+- The Now tier is limited to prerequisites for trustworthy local import, matching, merge, undo, and verification.
+- High-risk dependency areas are isolated: PST/OST, image processing, CardDAV write sync, cloud enrichment, and plugins.
+- The roadmap preserves the project philosophy: offline by default, format breadth, transparent fuzzy matching, reversible merge.
+- `ROADMAP.md` is located at the repository root.
+
+## Appendix A - Local Evidence
+
+| ID | Evidence |
+|---|---|
+| L01 | `README.md` - project philosophy, claimed differentiators, current feature list. |
+| L02 | previous `ROADMAP.md` - original milestone sketch. |
+| L03 | `CHANGELOG.md` - v0.1.0 shipped scaffold summary. |
+| L04 | `src/OrganizeContacts.App/OrganizeContacts.App.csproj` and `src/OrganizeContacts.Core/OrganizeContacts.Core.csproj` - .NET targets and package pins. |
+| L05 | `src/OrganizeContacts.Core/**` and `src/OrganizeContacts.App/ViewModels/MainViewModel.cs` - actual parser, dedup, storage, UI behavior. |
+| L06 | `.github/workflows/release.yml` - current release packaging. |
+
+## Appendix B - External Sources
+
+| ID | URL |
+|---|---|
+| S01 | https://www.rfc-editor.org/rfc/rfc6350 |
+| S02 | https://www.rfc-editor.org/rfc/rfc6352 |
+| S03 | https://www.rfc-editor.org/rfc/rfc7095 |
+| S04 | https://www.rfc-editor.org/rfc/rfc9553 |
+| S05 | https://support.apple.com/guide/iphone/merge-or-hide-duplicate-contacts-iph2ab28320d/ios |
+| S06 | https://support.apple.com/en-au/guide/contacts/adrbk1498/mac |
+| S07 | https://support.google.com/contacts/answer/7078226 |
+| S08 | https://support.google.com/contacts/answer/7199294 |
+| S09 | https://support.microsoft.com/office/import-contacts-to-outlook-for-windows-bb796340-b58a-46c1-90c7-b549b8f3c5f8 |
+| S10 | https://developer.thunderbird.net/thunderbird-development/codebase-overview/address-book |
+| S11 | https://github.com/nextcloud/contacts |
+| S12 | https://github.com/nextcloud/contacts/issues/5246 |
+| S13 | https://github.com/nextcloud/contacts/issues/5192 |
+| S14 | https://github.com/nextcloud/contacts/issues/5191 |
+| S15 | https://github.com/nextcloud/contacts/issues/5245 |
+| S16 | https://github.com/nextcloud/contacts/issues/5277 |
+| S17 | https://github.com/FossifyOrg/Contacts |
+| S18 | https://services.addons.thunderbird.net/EN-us/thunderbird/addon/cardbook/ |
+| S19 | https://gitlab.com/CardBook |
+| S20 | https://github.com/DDvO/Duplicate-Contacts-Manager |
+| S21 | https://github.com/mbideau/vcardtools |
+| S22 | https://github.com/cedi-ch/kontakt-schnabel |
+| S23 | https://github.com/lucc/khard |
+| S24 | https://github.com/pimutils/vdirsyncer |
+| S25 | https://github.com/Kozea/Radicale |
+| S26 | https://github.com/sabre-io/Baikal |
+| S27 | https://github.com/monicahq/monica |
+| S28 | https://github.com/pimalaya/cardamum |
+| S29 | https://github.com/etesync/etesync-dav |
+| S30 | https://www.davx5.com/ |
+| S31 | https://support.contactsplus.com/hc/en-us/articles/22538374387611-Contacts-Premium-Trial |
+| S32 | https://support.contactsplus.com/hc/en-us/articles/4407278226459-The-Assistant-Applying-Updates-and-Duplicates |
+| S33 | https://covve.com/pricing |
+| S34 | https://www.copytrans.net/support/user-guides-copytrans-contacts/ |
+| S35 | https://www.cisdem.com/resource/cisdem-contactsmate-mac-advanced-guide.html |
+| S36 | https://imazing.com/documentation/iMazing-CLI-Documentation.pdf |
+| S37 | https://play.google.com/store/apps/details?id=com.forteam.mergix |
+| S38 | https://www.reddit.com/r/SimpleMobileTools/comments/ugqikb |
+| S39 | https://www.reddit.com/r/iphone/comments/13ftk6b |
+| S40 | https://www.reddit.com/r/macapps/comments/1okjfir |
+| S41 | https://www.reddit.com/r/Thunderbird/comments/1ahpccw |
+| S42 | https://www.reddit.com/r/openphone/comments/1jbajmm |
+| S43 | https://stackoverflow.com/questions/50655191/how-do-i-detect-changes-in-vcards |
+| S44 | https://apple.stackexchange.com/questions/433906/how-can-i-import-a-vcard-without-getting-duplicated-fields |
+| S45 | https://forum.mudita.com/t/contacts-duplicated-missing-labels-after-importing-from-vcard/12466 |
+| S46 | https://correctvcf.com/help/fix-duplicate-contacts-vcf-import/ |
+| S47 | https://github.com/rwsturm/awesome-selfhosted |
+| S48 | https://docs.kde.org/stable_kf6/en/kaddressbook/kaddressbook/ |
+| S49 | https://wiki.gnome.org/Apps%282f%29Contacts.html |
+| S50 | https://manual.davx5.com/introduction.html |
+| S51 | https://github.com/dedupeio/dedupe |
+| S52 | https://docs.dedupe.io/ |
+| S53 | https://fritshermans.github.io/posts/Deduplipy.html |
+| S54 | https://github.com/google/libphonenumber/blob/master/FALSEHOODS.md |
+| S55 | https://github.com/twcclegg/libphonenumber-csharp |
+| S56 | https://www.nuget.org/packages/FolkerKinzel.VCards |
+| S57 | https://github.com/mixerp/MixERP.Net.VCards |
+| S58 | https://github.com/Aptivi/VisualCard |
+| S59 | https://github.com/coenm/ImageHash |
+| S60 | https://github.com/advisories/GHSA-2cmq-823j-5qj8 |
+| S61 | https://www.nuget.org/packages/Microsoft.Data.Sqlite/10.0.7 |
+| S62 | https://www.nuget.org/packages/CommunityToolkit.Mvvm/8.4.2 |
+| S63 | https://devblogs.microsoft.com/dotnet/dotnet-10-0-7-oob-security-update/ |
+| S64 | https://nvd.nist.gov/vuln/detail/CVE-2025-6965 |
+| S65 | https://github.com/sabre-io/dav |
+| S66 | https://github.com/natelindev/tsdav |
+| S67 | https://bugzilla.mozilla.org/show_bug.cgi?id=2013764 |
+| S68 | https://github.com/topics/contact-manager |
+| S69 | https://www.rfc-editor.org/rfc/rfc6868 |
+| S70 | https://learn.microsoft.com/en-us/dotnet/desktop/wpf/whats-new/net100 |
+```
+
+</details>

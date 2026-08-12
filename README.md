@@ -2,7 +2,7 @@
 
 ![OrganizeContacts brand banner](branding/organizecontacts-banner.svg)
 
-[![Version](https://img.shields.io/badge/version-0.3.5-blue.svg)](https://github.com/SysAdminDoc/OrganizeContacts/releases)
+[![Version](https://img.shields.io/badge/version-0.3.6-blue.svg)](https://github.com/SysAdminDoc/OrganizeContacts/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d4.svg)](https://github.com/SysAdminDoc/OrganizeContacts)
 [![.NET](https://img.shields.io/badge/.NET-10-512bd4.svg)](https://dotnet.microsoft.com/)
@@ -22,7 +22,7 @@ OrganizeContacts is a Windows desktop app for importing, reviewing, cleaning, de
 - Export contacts to vCard 3.0/4.0, Google CSV, Outlook CSV, jCard, or
   birthday/anniversary iCalendar.
 - Restore prior import snapshots and undo merge operations.
-- Switch between dark and light themes.
+- Switch between dark, light, and Windows high-contrast themes.
 
 ## Current App Status
 

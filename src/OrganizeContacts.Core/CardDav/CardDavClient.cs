@@ -42,7 +42,8 @@ public sealed class CardDavClient : IDisposable
         _ownsHttp = true;
         var bytes = Encoding.UTF8.GetBytes($"{username}:{password}");
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(bytes));
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("OrganizeContacts/0.3 (+local-first)");
+        var version = typeof(CardDavClient).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd($"OrganizeContacts/{version} (+local-first)");
     }
 
     public void Dispose()

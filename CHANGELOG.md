@@ -2,7 +2,7 @@
 
 All notable changes to OrganizeContacts will be documented in this file.
 
-## Unreleased
+## v0.3.6 — 2026-08-12 — Standards fidelity and release hardening
 
 - Completed RFC 7095 jCard field fidelity for addresses, embedded photos,
   extension properties, preferred phones/emails/addresses, canonical

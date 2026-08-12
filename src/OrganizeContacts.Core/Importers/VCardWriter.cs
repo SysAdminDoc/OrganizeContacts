@@ -80,7 +80,7 @@ public sealed class VCardWriter
 
         foreach (var a in c.Addresses)
         {
-            var paramStr = BuildTypeParams(a.Kind.ToString().ToUpperInvariant(), false);
+            var paramStr = BuildTypeParams(a.Kind.ToString().ToUpperInvariant(), a.IsPreferred);
             var adr = string.Join(';', new[]
             {
                 a.PoBox ?? string.Empty,
@@ -208,7 +208,7 @@ public sealed class VCardWriter
     {
         var bytes = 0;
         var taken = 0;
-        for (int i = start; i < s.Length; )
+        for (int i = start; i < s.Length;)
         {
             int cp;
             int codeUnits;
@@ -224,8 +224,8 @@ public sealed class VCardWriter
             }
 
             int cpBytes =
-                cp < 0x80    ? 1 :
-                cp < 0x800   ? 2 :
+                cp < 0x80 ? 1 :
+                cp < 0x800 ? 2 :
                 cp < 0x10000 ? 3 : 4;
 
             if (bytes + cpBytes > maxOctets) break;

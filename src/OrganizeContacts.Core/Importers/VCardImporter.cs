@@ -223,16 +223,16 @@ public sealed class VCardImporter : IContactImporter
                     break;
 
                 case "N":
-                {
-                    var n = SplitStructured(prop.Value);
-                    if (n.Length >= 1) contact.FamilyName = NullIfEmpty(UnescapeText(n[0]));
-                    if (n.Length >= 2) contact.GivenName = NullIfEmpty(UnescapeText(n[1]));
-                    if (n.Length >= 3) contact.AdditionalNames = NullIfEmpty(UnescapeText(n[2]));
-                    if (n.Length >= 4) contact.HonorificPrefix = NullIfEmpty(UnescapeText(n[3]));
-                    if (n.Length >= 5) contact.HonorificSuffix = NullIfEmpty(UnescapeText(n[4]));
-                    seenAny = true;
-                    break;
-                }
+                    {
+                        var n = SplitStructured(prop.Value);
+                        if (n.Length >= 1) contact.FamilyName = NullIfEmpty(UnescapeText(n[0]));
+                        if (n.Length >= 2) contact.GivenName = NullIfEmpty(UnescapeText(n[1]));
+                        if (n.Length >= 3) contact.AdditionalNames = NullIfEmpty(UnescapeText(n[2]));
+                        if (n.Length >= 4) contact.HonorificPrefix = NullIfEmpty(UnescapeText(n[3]));
+                        if (n.Length >= 5) contact.HonorificSuffix = NullIfEmpty(UnescapeText(n[4]));
+                        seenAny = true;
+                        break;
+                    }
 
                 case "NICKNAME":
                     contact.Nickname = UnescapeText(prop.Value);
@@ -284,21 +284,22 @@ public sealed class VCardImporter : IContactImporter
                     break;
 
                 case "ADR":
-                {
-                    var a = SplitStructured(prop.Value);
-                    contact.Addresses.Add(new PostalAddress
                     {
-                        PoBox = a.Length > 0 ? NullIfEmpty(UnescapeText(a[0])) : null,
-                        Extended = a.Length > 1 ? NullIfEmpty(UnescapeText(a[1])) : null,
-                        Street = a.Length > 2 ? NullIfEmpty(UnescapeText(a[2])) : null,
-                        Locality = a.Length > 3 ? NullIfEmpty(UnescapeText(a[3])) : null,
-                        Region = a.Length > 4 ? NullIfEmpty(UnescapeText(a[4])) : null,
-                        PostalCode = a.Length > 5 ? NullIfEmpty(UnescapeText(a[5])) : null,
-                        Country = a.Length > 6 ? NullIfEmpty(UnescapeText(a[6])) : null,
-                        Kind = ParseAddressKind(prop),
-                    });
-                    break;
-                }
+                        var a = SplitStructured(prop.Value);
+                        contact.Addresses.Add(new PostalAddress
+                        {
+                            PoBox = a.Length > 0 ? NullIfEmpty(UnescapeText(a[0])) : null,
+                            Extended = a.Length > 1 ? NullIfEmpty(UnescapeText(a[1])) : null,
+                            Street = a.Length > 2 ? NullIfEmpty(UnescapeText(a[2])) : null,
+                            Locality = a.Length > 3 ? NullIfEmpty(UnescapeText(a[3])) : null,
+                            Region = a.Length > 4 ? NullIfEmpty(UnescapeText(a[4])) : null,
+                            PostalCode = a.Length > 5 ? NullIfEmpty(UnescapeText(a[5])) : null,
+                            Country = a.Length > 6 ? NullIfEmpty(UnescapeText(a[6])) : null,
+                            Kind = ParseAddressKind(prop),
+                            IsPreferred = prop.IsPreferred,
+                        });
+                        break;
+                    }
 
                 case "URL":
                     if (!string.IsNullOrWhiteSpace(prop.Value)) contact.Urls.Add(UnescapeText(prop.Value));

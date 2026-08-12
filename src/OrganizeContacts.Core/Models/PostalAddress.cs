@@ -12,6 +12,7 @@ public sealed class PostalAddress
     public string? PostalCode { get; init; }
     public string? Country { get; init; }
     public AddressKind Kind { get; init; } = AddressKind.Other;
+    public bool IsPreferred { get; init; }
     public Guid? SourceId { get; init; }
 
     public string OneLine => string.Join(", ",

@@ -1,4 +1,5 @@
 using System.IO;
+using Microsoft.Data.Sqlite;
 using OrganizeContacts.Core.Models;
 using OrganizeContacts.Core.Storage;
 
@@ -30,6 +31,40 @@ public class StorageTests : IDisposable
     }
 
     [Fact]
+    public void Version_one_database_migrates_address_preference_column()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"oc-v1-{Guid.NewGuid():N}.sqlite");
+        try
+        {
+            using (var connection = new SqliteConnection($"Data Source={path}"))
+            {
+                connection.Open();
+                using var create = connection.CreateCommand();
+                create.CommandText = """
+                    CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_utc TEXT NOT NULL);
+                    INSERT INTO schema_version(version, applied_utc) VALUES (1, '2026-01-01T00:00:00Z');
+                    CREATE TABLE addresses (id INTEGER PRIMARY KEY);
+                    """;
+                create.ExecuteNonQuery();
+            }
+
+            using var migrated = new ContactRepository(path);
+            using var columns = migrated.Connection.CreateCommand();
+            columns.CommandText = "SELECT name FROM pragma_table_info('addresses') WHERE name = 'is_preferred';";
+            Assert.Equal("is_preferred", columns.ExecuteScalar());
+
+            using var version = migrated.Connection.CreateCommand();
+            version.CommandText = "SELECT MAX(version) FROM schema_version;";
+            Assert.Equal(2L, version.ExecuteScalar());
+        }
+        finally
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(path + suffix); } catch { }
+        }
+    }
+
+    [Fact]
     public void Round_trips_contact_with_children()
     {
         var src = _repo.UpsertSource(new ContactSource { Kind = SourceKind.File, Label = "test" });
@@ -42,6 +77,12 @@ public class StorageTests : IDisposable
         };
         c.Phones.Add(PhoneNumber.Parse("5551234567", PhoneKind.Mobile));
         c.Emails.Add(new EmailAddress { Address = "rt@example.com" });
+        c.Addresses.Add(new PostalAddress
+        {
+            Street = "123 Main Street",
+            Kind = AddressKind.Work,
+            IsPreferred = true,
+        });
         c.Categories.Add("Friends");
         c.CustomFields["X-FOO"] = "bar";
 
@@ -52,6 +93,7 @@ public class StorageTests : IDisposable
         Assert.Equal("Round Trip", read!.FormattedName);
         Assert.Single(read.Phones);
         Assert.Single(read.Emails);
+        Assert.True(Assert.Single(read.Addresses).IsPreferred);
         Assert.Single(read.Categories);
         Assert.Equal("bar", read.CustomFields["X-FOO"]);
     }

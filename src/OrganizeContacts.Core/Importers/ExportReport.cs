@@ -134,5 +134,5 @@ public static class ExportReportComparer
 
     private static string AddressKey(PostalAddress address) =>
         string.Join("|", address.PoBox, address.Extended, address.Street, address.Locality,
-            address.Region, address.PostalCode, address.Country, address.Kind);
+            address.Region, address.PostalCode, address.Country, address.Kind, address.IsPreferred);
 }

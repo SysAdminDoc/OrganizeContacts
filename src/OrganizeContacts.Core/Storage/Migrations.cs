@@ -4,7 +4,7 @@ namespace OrganizeContacts.Core.Storage;
 
 internal static class Migrations
 {
-    public static int CurrentVersion => 1;
+    public static int CurrentVersion => 2;
 
     public static void Apply(SqliteConnection conn)
     {
@@ -16,6 +16,15 @@ internal static class Migrations
             using var tx = conn.BeginTransaction();
             ExecBatch(conn, tx, V1);
             WriteVersion(conn, tx, 1);
+            tx.Commit();
+            current = 1;
+        }
+
+        if (current < 2)
+        {
+            using var tx = conn.BeginTransaction();
+            ExecBatch(conn, tx, V2);
+            WriteVersion(conn, tx, 2);
             tx.Commit();
         }
     }
@@ -208,5 +217,10 @@ internal static class Migrations
             blob_json    TEXT NOT NULL,
             FOREIGN KEY (import_id) REFERENCES imports(id) ON DELETE CASCADE
         );
+        """;
+
+    private const string V2 = """
+        ALTER TABLE addresses
+        ADD COLUMN is_preferred INTEGER NOT NULL DEFAULT 0;
         """;
 }

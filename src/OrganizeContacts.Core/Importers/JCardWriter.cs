@@ -31,8 +31,8 @@ public sealed class JCardWriter
         WriteProp(w, "version", "text", "4.0");
         if (!string.IsNullOrWhiteSpace(c.Uid)) WriteProp(w, "uid", "text", c.Uid!);
 
-        if (!string.IsNullOrWhiteSpace(c.FormattedName))
-            WriteProp(w, "fn", "text", c.FormattedName!);
+        var formattedName = string.IsNullOrWhiteSpace(c.FormattedName) ? c.DisplayName : c.FormattedName!;
+        if (!string.IsNullOrWhiteSpace(formattedName)) WriteProp(w, "fn", "text", formattedName);
 
         WritePropOpen(w, "n");
         w.WriteStartArray();
@@ -45,29 +45,66 @@ public sealed class JCardWriter
         w.WriteEndArray();
 
         if (!string.IsNullOrWhiteSpace(c.Nickname)) WriteProp(w, "nickname", "text", c.Nickname!);
-        if (!string.IsNullOrWhiteSpace(c.Organization)) WriteProp(w, "org", "text", c.Organization!);
+        if (!string.IsNullOrWhiteSpace(c.Organization))
+            WriteStructuredTextProp(w, "org", new[] { c.Organization! });
         if (!string.IsNullOrWhiteSpace(c.Title)) WriteProp(w, "title", "text", c.Title!);
         if (!string.IsNullOrWhiteSpace(c.Notes)) WriteProp(w, "note", "text", c.Notes!);
         if (c.Birthday.HasValue) WriteProp(w, "bday", "date", c.Birthday.Value.ToString("yyyy-MM-dd"));
         if (c.Anniversary.HasValue) WriteProp(w, "anniversary", "date", c.Anniversary.Value.ToString("yyyy-MM-dd"));
 
         foreach (var p in c.Phones)
-            WritePropTyped(w, "tel", new[] { p.Kind.ToString().ToLowerInvariant() },
-                "uri", string.IsNullOrEmpty(p.E164) ? p.Raw : p.E164!);
+        {
+            var number = string.IsNullOrEmpty(p.E164) ? p.Raw : p.E164!;
+            if (!number.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) number = "tel:" + number;
+            WritePropTyped(w, "tel", PhoneTypes(p.Kind), p.IsPreferred, "uri", number);
+        }
 
         foreach (var e in c.Emails)
-            WritePropTyped(w, "email", new[] { e.Kind.ToString().ToLowerInvariant() }, "text", e.Address);
+            WritePropTyped(w, "email", EmailTypes(e.Kind), e.IsPreferred, "text", e.Address);
+
+        foreach (var a in c.Addresses)
+        {
+            w.WriteStartArray();
+            w.WriteStringValue("adr");
+            WriteParameters(w, AddressTypes(a.Kind), a.IsPreferred);
+            w.WriteStringValue("text");
+            w.WriteStartArray();
+            w.WriteStringValue(a.PoBox ?? "");
+            w.WriteStringValue(a.Extended ?? "");
+            w.WriteStringValue(a.Street ?? "");
+            w.WriteStringValue(a.Locality ?? "");
+            w.WriteStringValue(a.Region ?? "");
+            w.WriteStringValue(a.PostalCode ?? "");
+            w.WriteStringValue(a.Country ?? "");
+            w.WriteEndArray();
+            w.WriteEndArray();
+        }
 
         foreach (var u in c.Urls)
             WriteProp(w, "url", "uri", u);
 
         if (c.Categories.Count > 0)
         {
-            WritePropOpen(w, "categories");
             w.WriteStartArray();
+            w.WriteStringValue("categories");
+            w.WriteStartObject(); w.WriteEndObject();
+            w.WriteStringValue("text");
             foreach (var cat in c.Categories) w.WriteStringValue(cat);
             w.WriteEndArray();
-            w.WriteEndArray();
+        }
+
+        if (c.PhotoBytes is { Length: > 0 })
+        {
+            var mime = string.IsNullOrWhiteSpace(c.PhotoMimeType) ? "image/jpeg" : c.PhotoMimeType;
+            WriteProp(w, "photo", "uri", $"data:{mime};base64,{Convert.ToBase64String(c.PhotoBytes)}");
+        }
+
+        foreach (var field in c.CustomFields)
+        {
+            var name = field.Key.StartsWith("X-", StringComparison.OrdinalIgnoreCase)
+                ? field.Key
+                : "X-" + field.Key;
+            WriteProp(w, name.ToLowerInvariant(), "unknown", field.Value);
         }
 
         WriteProp(w, "rev", "timestamp", c.Rev ?? c.UpdatedAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"));
@@ -94,22 +131,71 @@ public sealed class JCardWriter
         w.WriteStringValue("text");
     }
 
-    private static void WritePropTyped(Utf8JsonWriter w, string name, string[] types, string valueType, string value)
+    private static void WriteStructuredTextProp(Utf8JsonWriter w, string name, IEnumerable<string> components)
+    {
+        WritePropOpen(w, name);
+        w.WriteStartArray();
+        foreach (var component in components) w.WriteStringValue(component);
+        w.WriteEndArray();
+        w.WriteEndArray();
+    }
+
+    private static void WritePropTyped(
+        Utf8JsonWriter w,
+        string name,
+        IReadOnlyList<string> types,
+        bool preferred,
+        string valueType,
+        string value)
     {
         w.WriteStartArray();
         w.WriteStringValue(name);
-        w.WriteStartObject();
-        w.WritePropertyName("type");
-        if (types.Length == 1) w.WriteStringValue(types[0]);
-        else
-        {
-            w.WriteStartArray();
-            foreach (var t in types) w.WriteStringValue(t);
-            w.WriteEndArray();
-        }
-        w.WriteEndObject();
+        WriteParameters(w, types, preferred);
         w.WriteStringValue(valueType);
         w.WriteStringValue(value);
         w.WriteEndArray();
     }
+
+    private static void WriteParameters(Utf8JsonWriter w, IReadOnlyList<string> types, bool preferred)
+    {
+        w.WriteStartObject();
+        if (types.Count == 1)
+        {
+            w.WriteString("type", types[0]);
+        }
+        else if (types.Count > 1)
+        {
+            w.WritePropertyName("type");
+            w.WriteStartArray();
+            foreach (var type in types) w.WriteStringValue(type);
+            w.WriteEndArray();
+        }
+        if (preferred) w.WriteString("pref", "1");
+        w.WriteEndObject();
+    }
+
+    private static IReadOnlyList<string> PhoneTypes(PhoneKind kind) => kind switch
+    {
+        PhoneKind.Mobile => new[] { "cell" },
+        PhoneKind.Home => new[] { "home" },
+        PhoneKind.Work => new[] { "work" },
+        PhoneKind.Fax => new[] { "fax" },
+        PhoneKind.Pager => new[] { "pager" },
+        PhoneKind.Main => new[] { "voice" },
+        _ => Array.Empty<string>(),
+    };
+
+    private static IReadOnlyList<string> EmailTypes(EmailKind kind) => kind switch
+    {
+        EmailKind.Personal => new[] { "home" },
+        EmailKind.Work => new[] { "work" },
+        _ => Array.Empty<string>(),
+    };
+
+    private static IReadOnlyList<string> AddressTypes(AddressKind kind) => kind switch
+    {
+        AddressKind.Home => new[] { "home" },
+        AddressKind.Work => new[] { "work" },
+        _ => Array.Empty<string>(),
+    };
 }

@@ -60,38 +60,68 @@ public sealed class JCardImporter : IContactImporter
 
             switch (name)
             {
-                case "FN": contact.FormattedName = value; seen = true; break;
+                case "FN":
+                    contact.FormattedName = value;
+                    seen |= !string.IsNullOrWhiteSpace(value);
+                    break;
                 case "N":
-                {
-                    var arr = prop[3];
-                    if (arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() >= 2)
                     {
-                        contact.FamilyName = arr[0].GetString();
-                        contact.GivenName = arr[1].GetString();
-                        if (arr.GetArrayLength() >= 3) contact.AdditionalNames = arr[2].GetString();
-                        if (arr.GetArrayLength() >= 4) contact.HonorificPrefix = arr[3].GetString();
-                        if (arr.GetArrayLength() >= 5) contact.HonorificSuffix = arr[4].GetString();
+                        var arr = prop[3];
+                        if (arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() >= 2)
+                        {
+                            contact.FamilyName = ExtractComponent(arr[0]);
+                            contact.GivenName = ExtractComponent(arr[1]);
+                            if (arr.GetArrayLength() >= 3) contact.AdditionalNames = ExtractComponent(arr[2]);
+                            if (arr.GetArrayLength() >= 4) contact.HonorificPrefix = ExtractComponent(arr[3]);
+                            if (arr.GetArrayLength() >= 5) contact.HonorificSuffix = ExtractComponent(arr[4]);
+                            seen |= !string.IsNullOrWhiteSpace(contact.DisplayName);
+                        }
+                        break;
+                    }
+                case "NICKNAME":
+                    contact.Nickname = value;
+                    seen |= !string.IsNullOrWhiteSpace(value);
+                    break;
+                case "ORG":
+                    contact.Organization = ExtractFirstComponent(prop[3]);
+                    seen |= !string.IsNullOrWhiteSpace(contact.Organization);
+                    break;
+                case "TITLE":
+                case "ROLE":
+                    if (string.IsNullOrWhiteSpace(contact.Title)) contact.Title = value;
+                    seen |= !string.IsNullOrWhiteSpace(value);
+                    break;
+                case "BDAY":
+                    if (GoogleCsvImporter.TryParseCsvDate(value ?? string.Empty, out var bd))
+                    {
+                        contact.Birthday = bd;
                         seen = true;
                     }
                     break;
-                }
-                case "NICKNAME": contact.Nickname = value; break;
-                case "ORG": contact.Organization = value; break;
-                case "TITLE": contact.Title = value; break;
-                case "BDAY":
-                    if (DateOnly.TryParse(value, out var bd)) contact.Birthday = bd;
-                    break;
                 case "ANNIVERSARY":
-                    if (DateOnly.TryParse(value, out var ad)) contact.Anniversary = ad;
+                    if (GoogleCsvImporter.TryParseCsvDate(value ?? string.Empty, out var ad))
+                    {
+                        contact.Anniversary = ad;
+                        seen = true;
+                    }
                     break;
-                case "NOTE": contact.Notes = value; break;
+                case "NOTE":
+                    contact.Notes = value;
+                    seen |= !string.IsNullOrWhiteSpace(value);
+                    break;
                 case "URL":
                     if (!string.IsNullOrWhiteSpace(value)) { contact.Urls.Add(value!); seen = true; }
                     break;
                 case "TEL":
                     if (!string.IsNullOrWhiteSpace(value))
                     {
-                        contact.Phones.Add(PhoneNumber.Parse(value!, ParsePhoneKind(prop[1])));
+                        var raw = value!.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)
+                            ? value[4..]
+                            : value;
+                        contact.Phones.Add(PhoneNumber.Parse(
+                            raw,
+                            ParsePhoneKind(prop[1]),
+                            IsPreferred(prop[1])));
                         seen = true;
                     }
                     break;
@@ -102,10 +132,35 @@ public sealed class JCardImporter : IContactImporter
                         {
                             Address = value!,
                             Kind = ParseEmailKind(prop[1]),
+                            IsPreferred = IsPreferred(prop[1]),
                         });
                         seen = true;
                     }
                     break;
+                case "ADR":
+                    {
+                        var arr = prop[3];
+                        if (arr.ValueKind != JsonValueKind.Array) break;
+                        var address = new PostalAddress
+                        {
+                            PoBox = ComponentAt(arr, 0),
+                            Extended = ComponentAt(arr, 1),
+                            Street = ComponentAt(arr, 2),
+                            Locality = ComponentAt(arr, 3),
+                            Region = ComponentAt(arr, 4),
+                            PostalCode = ComponentAt(arr, 5),
+                            Country = ComponentAt(arr, 6),
+                            Kind = ParseAddressKind(prop[1]),
+                            IsPreferred = IsPreferred(prop[1]),
+                        };
+                        if (address.OneLine.Length > 0 || !string.IsNullOrWhiteSpace(address.PoBox) ||
+                            !string.IsNullOrWhiteSpace(address.Extended))
+                        {
+                            contact.Addresses.Add(address);
+                            seen = true;
+                        }
+                        break;
+                    }
                 case "UID":
                     contact.Uid = value;
                     break;
@@ -113,20 +168,25 @@ public sealed class JCardImporter : IContactImporter
                     contact.Rev = value;
                     break;
                 case "CATEGORIES":
-                    // Braces matter: a previous version dropped braces and the inline
-                    // `else if` bound to the inner `if` (dangling-else), making the
-                    // single-string form unreachable. Both branches now clearly belong
-                    // to the outer choice on prop[3].ValueKind.
-                    if (prop[3].ValueKind == JsonValueKind.Array)
+                    // RFC 7095 represents each category as another property-array element.
+                    // Also accept the older nested-array and comma-string shapes emitted by
+                    // earlier OrganizeContacts releases and third-party exporters.
+                    for (var i = 3; i < prop.GetArrayLength(); i++)
                     {
-                        foreach (var ce in prop[3].EnumerateArray())
-                            if (ce.ValueKind == JsonValueKind.String)
-                                contact.Categories.Add(ce.GetString()!);
+                        AddCategories(contact.Categories, prop[i]);
                     }
-                    else if (!string.IsNullOrEmpty(value))
+                    seen |= contact.Categories.Count > 0;
+                    break;
+                case "PHOTO":
+                case "LOGO":
+                    if (TryAttachPhoto(contact, value)) seen = true;
+                    break;
+                default:
+                    if (name.StartsWith("X-", StringComparison.OrdinalIgnoreCase) &&
+                        !string.IsNullOrEmpty(value))
                     {
-                        foreach (var ct in value!.Split(','))
-                            contact.Categories.Add(ct.Trim());
+                        contact.CustomFields[name] = value;
+                        seen = true;
                     }
                     break;
             }
@@ -139,20 +199,74 @@ public sealed class JCardImporter : IContactImporter
         JsonValueKind.String => value.GetString(),
         JsonValueKind.Number => value.GetRawText(),
         JsonValueKind.True or JsonValueKind.False => value.GetRawText(),
-        JsonValueKind.Array => value.GetArrayLength() > 0 && value[0].ValueKind == JsonValueKind.String
-            ? string.Join(';', value.EnumerateArray().Select(e => e.GetString()))
+        JsonValueKind.Array => value.GetArrayLength() > 0
+            ? string.Join(';', value.EnumerateArray().Select(ExtractComponent))
             : null,
         _ => null,
     };
 
+    private static string? ExtractComponent(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => NullIfEmpty(value.GetString()),
+        JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => value.GetRawText(),
+        JsonValueKind.Array => NullIfEmpty(string.Join(',', value.EnumerateArray()
+            .Select(ExtractComponent)
+            .Where(x => !string.IsNullOrWhiteSpace(x)))),
+        _ => null,
+    };
+
+    private static string? ExtractFirstComponent(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Array) return ExtractComponent(value);
+        return value.GetArrayLength() == 0 ? null : ExtractComponent(value[0]);
+    }
+
+    private static string? ComponentAt(JsonElement array, int index) =>
+        index < array.GetArrayLength() ? ExtractComponent(array[index]) : null;
+
+    private static void AddCategories(List<string> categories, JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in value.EnumerateArray()) AddCategories(categories, item);
+            return;
+        }
+
+        var text = ExtractComponent(value);
+        if (string.IsNullOrWhiteSpace(text)) return;
+        foreach (var item in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            categories.Add(item);
+    }
+
+    private static bool TryAttachPhoto(Contact contact, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            !value.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var comma = value.IndexOf(',');
+        if (comma <= 5) return false;
+        var metadata = value[5..comma];
+        if (!metadata.Split(';').Any(x => x.Equals("base64", StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        try
+        {
+            var bytes = Convert.FromBase64String(value[(comma + 1)..]);
+            if (bytes.Length == 0) return false;
+            contact.PhotoBytes = bytes;
+            var mime = metadata.Split(';', 2)[0];
+            contact.PhotoMimeType = string.IsNullOrWhiteSpace(mime) ? null : mime;
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
     private static PhoneKind ParsePhoneKind(JsonElement parameters)
     {
-        if (parameters.ValueKind != JsonValueKind.Object) return PhoneKind.Other;
-        if (!parameters.TryGetProperty("type", out var type)) return PhoneKind.Other;
-        var types = type.ValueKind == JsonValueKind.Array
-            ? type.EnumerateArray().Select(e => e.GetString())
-            : new[] { type.GetString() };
-        foreach (var t in types)
+        foreach (var t in ParameterValues(parameters, "type"))
         {
             switch (t?.ToUpperInvariant())
             {
@@ -169,12 +283,7 @@ public sealed class JCardImporter : IContactImporter
 
     private static EmailKind ParseEmailKind(JsonElement parameters)
     {
-        if (parameters.ValueKind != JsonValueKind.Object) return EmailKind.Other;
-        if (!parameters.TryGetProperty("type", out var type)) return EmailKind.Other;
-        var types = type.ValueKind == JsonValueKind.Array
-            ? type.EnumerateArray().Select(e => e.GetString())
-            : new[] { type.GetString() };
-        foreach (var t in types)
+        foreach (var t in ParameterValues(parameters, "type"))
         {
             switch (t?.ToUpperInvariant())
             {
@@ -184,4 +293,54 @@ public sealed class JCardImporter : IContactImporter
         }
         return EmailKind.Other;
     }
+
+    private static AddressKind ParseAddressKind(JsonElement parameters)
+    {
+        foreach (var type in ParameterValues(parameters, "type"))
+        {
+            if (type.Equals("home", StringComparison.OrdinalIgnoreCase)) return AddressKind.Home;
+            if (type.Equals("work", StringComparison.OrdinalIgnoreCase)) return AddressKind.Work;
+        }
+        return AddressKind.Other;
+    }
+
+    private static bool IsPreferred(JsonElement parameters)
+    {
+        if (ParameterValues(parameters, "type")
+            .Any(x => x.Equals("pref", StringComparison.OrdinalIgnoreCase))) return true;
+
+        return ParameterValues(parameters, "pref").Any(x =>
+            int.TryParse(x, out var rank) && rank == 1);
+    }
+
+    private static IEnumerable<string> ParameterValues(JsonElement parameters, string name)
+    {
+        if (parameters.ValueKind != JsonValueKind.Object) yield break;
+        JsonElement value = default;
+        var found = false;
+        foreach (var property in parameters.EnumerateObject())
+        {
+            if (!property.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            value = property.Value;
+            found = true;
+            break;
+        }
+        if (!found) yield break;
+
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in value.EnumerateArray())
+            {
+                var text = ExtractComponent(item);
+                if (!string.IsNullOrWhiteSpace(text)) yield return text;
+            }
+            yield break;
+        }
+
+        var single = ExtractComponent(value);
+        if (!string.IsNullOrWhiteSpace(single)) yield return single;
+    }
+
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 }

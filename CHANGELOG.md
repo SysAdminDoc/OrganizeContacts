@@ -2,6 +2,14 @@
 
 All notable changes to OrganizeContacts will be documented in this file.
 
+## Unreleased
+
+- Completed RFC 7095 jCard field fidelity for addresses, embedded photos,
+  extension properties, preferred phones/emails/addresses, canonical
+  multi-value categories, structured names/organizations, and all URLs.
+- Added schema migration v2 so preferred-address metadata survives SQLite
+  persistence and vCard/jCard round trips.
+
 ## v0.3.5 — 2026-08-09 — Release metadata sync
 
 - Synchronized the application, CLI, manifest, README badge, and in-app

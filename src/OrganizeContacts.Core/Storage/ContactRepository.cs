@@ -270,7 +270,7 @@ public sealed class ContactRepository : IDisposable
         {
             cmd.CommandText = """
                 SELECT a.contact_id, a.po_box, a.extended, a.street, a.locality, a.region,
-                       a.postal_code, a.country, a.kind, a.source_id
+                       a.postal_code, a.country, a.kind, a.is_preferred, a.source_id
                 FROM addresses a
                 JOIN contacts c ON c.id = a.contact_id AND c.deleted_utc IS NULL;
                 """;
@@ -288,7 +288,8 @@ public sealed class ContactRepository : IDisposable
                     PostalCode = r.IsDBNull(6) ? null : r.GetString(6),
                     Country = r.IsDBNull(7) ? null : r.GetString(7),
                     Kind = Enum.TryParse<AddressKind>(r.GetString(8), out var k) ? k : AddressKind.Other,
-                    SourceId = r.IsDBNull(9) ? null : Guid.Parse(r.GetString(9)),
+                    IsPreferred = r.GetInt32(9) != 0,
+                    SourceId = r.IsDBNull(10) ? null : Guid.Parse(r.GetString(10)),
                 });
             }
         }
@@ -405,7 +406,7 @@ public sealed class ContactRepository : IDisposable
         }
         using (var cmd = _conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT po_box, extended, street, locality, region, postal_code, country, kind, source_id FROM addresses WHERE contact_id = $id;";
+            cmd.CommandText = "SELECT po_box, extended, street, locality, region, postal_code, country, kind, is_preferred, source_id FROM addresses WHERE contact_id = $id;";
             cmd.Parameters.AddWithValue("$id", c.Id.ToString());
             using var r = cmd.ExecuteReader();
             while (r.Read())
@@ -420,7 +421,8 @@ public sealed class ContactRepository : IDisposable
                     PostalCode = r.IsDBNull(5) ? null : r.GetString(5),
                     Country = r.IsDBNull(6) ? null : r.GetString(6),
                     Kind = Enum.TryParse<AddressKind>(r.GetString(7), out var k) ? k : AddressKind.Other,
-                    SourceId = r.IsDBNull(8) ? null : Guid.Parse(r.GetString(8)),
+                    IsPreferred = r.GetInt32(8) != 0,
+                    SourceId = r.IsDBNull(9) ? null : Guid.Parse(r.GetString(9)),
                 });
             }
         }
@@ -638,8 +640,8 @@ public sealed class ContactRepository : IDisposable
             using var cmd = _conn.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO addresses (contact_id, po_box, extended, street, locality, region, postal_code, country, kind, source_id)
-                VALUES ($cid, $po, $ext, $st, $loc, $reg, $pc, $ctry, $kind, $src);
+                INSERT INTO addresses (contact_id, po_box, extended, street, locality, region, postal_code, country, kind, is_preferred, source_id)
+                VALUES ($cid, $po, $ext, $st, $loc, $reg, $pc, $ctry, $kind, $pref, $src);
                 """;
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString());
             cmd.Parameters.AddWithValue("$po", (object?)a.PoBox ?? DBNull.Value);
@@ -650,6 +652,7 @@ public sealed class ContactRepository : IDisposable
             cmd.Parameters.AddWithValue("$pc", (object?)a.PostalCode ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ctry", (object?)a.Country ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$kind", a.Kind.ToString());
+            cmd.Parameters.AddWithValue("$pref", a.IsPreferred ? 1 : 0);
             cmd.Parameters.AddWithValue("$src", (object?)a.SourceId?.ToString() ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }

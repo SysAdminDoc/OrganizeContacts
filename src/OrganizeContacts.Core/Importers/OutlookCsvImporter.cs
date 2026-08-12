@@ -10,6 +10,8 @@ namespace OrganizeContacts.Core.Importers;
 /// </summary>
 public sealed class OutlookCsvImporter : IContactImporter
 {
+    private const string OverflowMarker = "[OrganizeContacts overflow] ";
+
     public string Name => "Outlook CSV";
     public IReadOnlyCollection<string> SupportedExtensions { get; } = new[] { ".csv" };
 
@@ -109,12 +111,13 @@ public sealed class OutlookCsvImporter : IContactImporter
         AddPhone(Get("Pager"), PhoneKind.Pager);
         AddPhone(Get("Business Fax"), PhoneKind.Fax);
         AddPhone(Get("Home Fax"), PhoneKind.Fax);
-        AddPhone(Get("Main Phone"), PhoneKind.Main);
+        AddPhone(Get("Company Main Phone", "Main Phone"), PhoneKind.Main);
 
         void AddPhone(string raw, PhoneKind kind)
         {
             if (string.IsNullOrWhiteSpace(raw)) return;
             contact.Phones.Add(PhoneNumber.Parse(raw.Trim(), kind));
+            seen = true;
         }
 
         // Addresses — Home / Business / Other
@@ -141,17 +144,145 @@ public sealed class OutlookCsvImporter : IContactImporter
                 Country = NullIfEmpty(country),
                 Kind = kind,
             });
+            seen = true;
         }
 
         var web = Get("Web Page", "Personal Web Page", "Business Web Page");
-        if (!string.IsNullOrWhiteSpace(web)) contact.Urls.Add(web);
+        if (!string.IsNullOrWhiteSpace(web))
+        {
+            contact.Urls.Add(web);
+            seen = true;
+        }
 
         var categories = Get("Categories");
         if (!string.IsNullOrWhiteSpace(categories))
             foreach (var c in categories.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
                 contact.Categories.Add(c.Trim());
+                seen = true;
+            }
 
-        return seen ? contact : null;
+        // OrganizeContacts versions before the metadata column stored values that did not
+        // fit Outlook's fixed-width schema in a structured Notes suffix. Recover those
+        // values before applying current metadata, which restores the original Notes text.
+        if (RecoverOverflow(contact)) seen = true;
+
+        // Keep every Outlook column the model does not understand. The matching writer
+        // restores these values under their original headers (Department, Assistant's
+        // Phone, custom Outlook fields, and future schema additions).
+        for (var i = 0; i < header.Count && i < row.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(row[i]) || IsMappedHeader(header[i])) continue;
+            contact.CustomFields[CsvRoundTripMetadata.PreserveColumn("OUTLOOK", header[i])] = row[i];
+            seen = true;
+        }
+
+        if (CsvRoundTripMetadata.TryApply(contact, header, row)) seen = true;
+
+        return seen || CsvRoundTripMetadata.HasModelData(contact) ? contact : null;
+    }
+
+    private static bool RecoverOverflow(Contact contact)
+    {
+        var notes = contact.Notes;
+        if (string.IsNullOrEmpty(notes)) return false;
+        var markerIndex = notes.LastIndexOf(OverflowMarker, StringComparison.Ordinal);
+        if (markerIndex < 0 || (markerIndex > 0 && notes[markerIndex - 1] != '\n')) return false;
+
+        var recovered = false;
+        foreach (var section in notes[(markerIndex + OverflowMarker.Length)..]
+                     .Split(" | ", StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (section.StartsWith("phones: ", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var item in section["phones: ".Length..]
+                             .Split("; ", StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var separator = item.IndexOf('=');
+                    if (separator <= 0 || separator == item.Length - 1 ||
+                        !Enum.TryParse<PhoneKind>(item[..separator], true, out var kind)) continue;
+                    contact.Phones.Add(PhoneNumber.Parse(item[(separator + 1)..], kind));
+                    recovered = true;
+                }
+            }
+            else if (section.StartsWith("extra emails: ", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var address in section["extra emails: ".Length..]
+                             .Split("; ", StringSplitOptions.RemoveEmptyEntries))
+                {
+                    contact.Emails.Add(new EmailAddress { Address = address });
+                    recovered = true;
+                }
+            }
+            else if (section.StartsWith("urls: ", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var url in section["urls: ".Length..]
+                             .Split("; ", StringSplitOptions.RemoveEmptyEntries))
+                {
+                    contact.Urls.Add(url);
+                    recovered = true;
+                }
+            }
+        }
+
+        if (!recovered) return false;
+        var originalNotes = notes[..markerIndex];
+        if (originalNotes.EndsWith('\n')) originalNotes = originalNotes[..^1];
+        contact.Notes = string.IsNullOrEmpty(originalNotes) ? null : originalNotes;
+        return true;
+    }
+
+    private static bool IsMappedHeader(string header)
+    {
+        if (header.Equals(CsvRoundTripMetadata.Header, StringComparison.OrdinalIgnoreCase)) return true;
+
+        return header.Equals("Title", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("First Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Given Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Middle Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Last Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Family Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Suffix", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Display Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Nickname", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Company", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Job Title", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Notes", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Birthday", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Anniversary", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("E-mail Address", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("E-mail 2 Address", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("E-mail 3 Address", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Mobile Phone", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Home Phone", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Home Phone 2", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Business Phone", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Business Phone 2", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Other Phone", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Pager", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Business Fax", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Home Fax", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Company Main Phone", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Main Phone", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Web Page", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Personal Web Page", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Business Web Page", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Categories", StringComparison.OrdinalIgnoreCase) ||
+               IsAddressHeader(header);
+    }
+
+    private static bool IsAddressHeader(string header)
+    {
+        foreach (var prefix in new[] { "Home", "Business", "Other" })
+        {
+            if (header.Equals($"{prefix} Street", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals($"{prefix} City", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals($"{prefix} State", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals($"{prefix} Postal Code", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals($"{prefix} Country/Region", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals($"{prefix} Country", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     private static int IndexOf(List<string> header, string key)

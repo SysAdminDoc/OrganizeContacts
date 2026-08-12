@@ -20,18 +20,25 @@ public sealed class GoogleCsvWriter
         var maxEmails = Math.Max(1, contacts.Select(c => c.Emails.Count).DefaultIfEmpty(0).Max());
         var maxPhones = Math.Max(1, contacts.Select(c => c.Phones.Count).DefaultIfEmpty(0).Max());
         var maxAddresses = Math.Max(1, contacts.Select(c => c.Addresses.Count).DefaultIfEmpty(0).Max());
+        var maxUrls = Math.Max(1, contacts.Select(c => c.Urls.Count).DefaultIfEmpty(0).Max());
 
-        var header = BuildHeader(maxEmails, maxPhones, maxAddresses);
-        await w.WriteLineAsync(CsvWriter.Format(header));
+        var visibleHeader = BuildHeader(maxEmails, maxPhones, maxAddresses, maxUrls);
+        foreach (var column in CsvRoundTripMetadata.CollectPreservedColumns(contacts, "GOOGLE"))
+            if (!visibleHeader.Contains(column, StringComparer.OrdinalIgnoreCase)) visibleHeader.Add(column);
+        var outputHeader = visibleHeader.Append(CsvRoundTripMetadata.Header);
+        await w.WriteLineAsync(CsvWriter.Format(outputHeader));
 
         foreach (var c in contacts)
         {
             ct.ThrowIfCancellationRequested();
-            await w.WriteLineAsync(CsvWriter.Format(BuildRow(c, maxEmails, maxPhones, maxAddresses)));
+            var row = BuildRow(c, maxEmails, maxPhones, maxAddresses, maxUrls);
+            CsvRoundTripMetadata.RestorePreservedColumns(c, "GOOGLE", visibleHeader, row);
+            row.Add(CsvRoundTripMetadata.Create(c, visibleHeader, row));
+            await w.WriteLineAsync(CsvWriter.Format(row));
         }
     }
 
-    private static List<string> BuildHeader(int emails, int phones, int addresses)
+    private static List<string> BuildHeader(int emails, int phones, int addresses, int urls)
     {
         var h = new List<string>
         {
@@ -48,18 +55,23 @@ public sealed class GoogleCsvWriter
         for (int i = 1; i <= addresses; i++)
         {
             h.Add($"Address {i} - Label");
+            h.Add($"Address {i} - PO Box");
+            h.Add($"Address {i} - Extended Address");
             h.Add($"Address {i} - Street");
             h.Add($"Address {i} - City");
             h.Add($"Address {i} - Region");
             h.Add($"Address {i} - Postal Code");
             h.Add($"Address {i} - Country");
         }
-        h.Add("Website 1 - Label");
-        h.Add("Website 1 - Value");
+        for (int i = 1; i <= urls; i++)
+        {
+            h.Add($"Website {i} - Label");
+            h.Add($"Website {i} - Value");
+        }
         return h;
     }
 
-    private static List<string> BuildRow(Contact c, int emails, int phones, int addresses)
+    private static List<string> BuildRow(Contact c, int emails, int phones, int addresses, int urls)
     {
         var row = new List<string>
         {
@@ -103,16 +115,21 @@ public sealed class GoogleCsvWriter
             {
                 var a = c.Addresses[i];
                 row.Add(a.Kind.ToString());
+                row.Add(a.PoBox ?? "");
+                row.Add(a.Extended ?? "");
                 row.Add(a.Street ?? "");
                 row.Add(a.Locality ?? "");
                 row.Add(a.Region ?? "");
                 row.Add(a.PostalCode ?? "");
                 row.Add(a.Country ?? "");
             }
-            else { for (int j = 0; j < 6; j++) row.Add(""); }
+            else { for (int j = 0; j < 8; j++) row.Add(""); }
         }
-        row.Add(c.Urls.Count > 0 ? "Other" : "");
-        row.Add(c.Urls.FirstOrDefault() ?? "");
+        for (int i = 0; i < urls; i++)
+        {
+            row.Add(i < c.Urls.Count ? "Other" : "");
+            row.Add(i < c.Urls.Count ? c.Urls[i] : "");
+        }
         return row;
     }
 }

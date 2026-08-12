@@ -9,6 +9,11 @@ All notable changes to OrganizeContacts will be documented in this file.
   multi-value categories, structured names/organizations, and all URLs.
 - Added schema migration v2 so preferred-address metadata survives SQLite
   persistence and vCard/jCard round trips.
+- Made Google and Outlook CSV exports lossless for the contact model through a
+  fingerprint-validated round-trip column that is ignored after visible
+  spreadsheet edits.
+- Preserved unmodeled CSV columns under their original headers, expanded Google
+  address/URL coverage, and recovered legacy Outlook overflow values from Notes.
 
 ## v0.3.5 — 2026-08-09 — Release metadata sync
 

@@ -148,22 +148,30 @@ public sealed class GoogleCsvImporter : IContactImporter
             }
         }
 
-        // Addresses (Address 1 - Formatted / Street / City / Region / Postal / Country / Country Code)
-        for (int n = 1; n <= 5; n++)
+        // Addresses are dynamically numbered; large Google exports can contain more than
+        // five, so discover the indexes from the header instead of imposing a local cap.
+        foreach (var n in FindIndexes(header, "Address "))
         {
+            var poBox = Get($"Address {n} - PO Box");
+            var extended = Get($"Address {n} - Extended Address");
             var street = Get($"Address {n} - Street");
+            var formatted = Get($"Address {n} - Formatted");
             var city = Get($"Address {n} - City");
             var region = Get($"Address {n} - Region");
             var postal = Get($"Address {n} - Postal Code");
             var country = Get($"Address {n} - Country");
             var label = Get($"Address {n} - Label");
-            if (string.IsNullOrWhiteSpace(street) && string.IsNullOrWhiteSpace(city) &&
+            if (string.IsNullOrWhiteSpace(poBox) && string.IsNullOrWhiteSpace(extended) &&
+                string.IsNullOrWhiteSpace(street) && string.IsNullOrWhiteSpace(formatted) &&
+                string.IsNullOrWhiteSpace(city) &&
                 string.IsNullOrWhiteSpace(region) && string.IsNullOrWhiteSpace(postal) &&
                 string.IsNullOrWhiteSpace(country)) continue;
 
             contact.Addresses.Add(new PostalAddress
             {
-                Street = string.IsNullOrWhiteSpace(street) ? null : street,
+                PoBox = NullIfEmpty(poBox),
+                Extended = NullIfEmpty(extended),
+                Street = NullIfEmpty(street) ?? NullIfEmpty(formatted),
                 Locality = string.IsNullOrWhiteSpace(city) ? null : city,
                 Region = string.IsNullOrWhiteSpace(region) ? null : region,
                 PostalCode = string.IsNullOrWhiteSpace(postal) ? null : postal,
@@ -192,7 +200,19 @@ public sealed class GoogleCsvImporter : IContactImporter
             if (!string.IsNullOrWhiteSpace(val)) contact.Urls.Add(val);
         }
 
-        return seen ? contact : null;
+        // Preserve every non-empty column we do not model. The reversible key allows the
+        // Google writer to restore the exact original header/value instead of inventing a
+        // lossy X-* field name.
+        for (var i = 0; i < header.Count && i < row.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(row[i]) || IsMappedHeader(header[i])) continue;
+            contact.CustomFields[CsvRoundTripMetadata.PreserveColumn("GOOGLE", header[i])] = row[i];
+            seen = true;
+        }
+
+        if (CsvRoundTripMetadata.TryApply(contact, header, row)) seen = true;
+
+        return seen || CsvRoundTripMetadata.HasModelData(contact) ? contact : null;
     }
 
     private static int IndexOf(List<string> header, string key)
@@ -200,6 +220,51 @@ public sealed class GoogleCsvImporter : IContactImporter
         for (int i = 0; i < header.Count; i++)
             if (header[i].Equals(key, StringComparison.OrdinalIgnoreCase)) return i;
         return -1;
+    }
+
+    private static IReadOnlyList<int> FindIndexes(IEnumerable<string> header, string prefix)
+    {
+        var indexes = new SortedSet<int>();
+        foreach (var name in header)
+        {
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            var separator = name.IndexOf(" - ", prefix.Length, StringComparison.Ordinal);
+            if (separator <= prefix.Length) continue;
+            if (int.TryParse(name.AsSpan(prefix.Length, separator - prefix.Length), out var index) && index > 0)
+                indexes.Add(index);
+        }
+        return indexes.ToList();
+    }
+
+    private static bool IsMappedHeader(string header)
+    {
+        if (header.Equals(CsvRoundTripMetadata.Header, StringComparison.OrdinalIgnoreCase)) return true;
+        if ((header.StartsWith("E-mail ", StringComparison.OrdinalIgnoreCase) ||
+             header.StartsWith("Phone ", StringComparison.OrdinalIgnoreCase) ||
+             header.StartsWith("Website ", StringComparison.OrdinalIgnoreCase)) &&
+            header.EndsWith(" - Value", StringComparison.OrdinalIgnoreCase)) return true;
+        if (header.StartsWith("Address ", StringComparison.OrdinalIgnoreCase) &&
+            (header.EndsWith(" - PO Box", StringComparison.OrdinalIgnoreCase) ||
+             header.EndsWith(" - Extended Address", StringComparison.OrdinalIgnoreCase) ||
+             header.EndsWith(" - Street", StringComparison.OrdinalIgnoreCase) ||
+             header.EndsWith(" - Formatted", StringComparison.OrdinalIgnoreCase) ||
+             header.EndsWith(" - City", StringComparison.OrdinalIgnoreCase) ||
+             header.EndsWith(" - Region", StringComparison.OrdinalIgnoreCase) ||
+             header.EndsWith(" - Postal Code", StringComparison.OrdinalIgnoreCase) ||
+             header.EndsWith(" - Country", StringComparison.OrdinalIgnoreCase))) return true;
+
+        return header.Equals("Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Given Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Additional Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Family Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Name Prefix", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Name Suffix", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Nickname", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Birthday", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Notes", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Group Membership", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Organization Name", StringComparison.OrdinalIgnoreCase) ||
+               header.Equals("Organization Title", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Culture-stable date parse. Google emits ISO-8601, but partial dates and
@@ -271,4 +336,7 @@ public sealed class GoogleCsvImporter : IContactImporter
         "WORK" => AddressKind.Work,
         _ => AddressKind.Other,
     };
+
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 }

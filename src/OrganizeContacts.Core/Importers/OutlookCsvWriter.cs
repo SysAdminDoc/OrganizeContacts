@@ -9,7 +9,7 @@ public sealed class OutlookCsvWriter
 {
     private static readonly string[] Header = new[]
     {
-        "Title", "First Name", "Middle Name", "Last Name", "Suffix", "Company",
+        "Title", "First Name", "Middle Name", "Last Name", "Suffix", "Display Name", "Nickname", "Company",
         "Department", "Job Title",
         "Business Street", "Business City", "Business State", "Business Postal Code", "Business Country/Region",
         "Home Street", "Home City", "Home State", "Home Postal Code", "Home Country/Region",
@@ -28,11 +28,17 @@ public sealed class OutlookCsvWriter
         await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         await using var w = new StreamWriter(fs, new UTF8Encoding(false));
 
-        await w.WriteLineAsync(CsvWriter.Format(Header));
+        var visibleHeader = Header.ToList();
+        foreach (var column in CsvRoundTripMetadata.CollectPreservedColumns(contacts, "OUTLOOK"))
+            if (!visibleHeader.Contains(column, StringComparer.OrdinalIgnoreCase)) visibleHeader.Add(column);
+        await w.WriteLineAsync(CsvWriter.Format(visibleHeader.Append(CsvRoundTripMetadata.Header)));
         foreach (var c in contacts)
         {
             ct.ThrowIfCancellationRequested();
-            await w.WriteLineAsync(CsvWriter.Format(Row(c)));
+            var row = Row(c);
+            CsvRoundTripMetadata.RestorePreservedColumns(c, "OUTLOOK", visibleHeader, row);
+            row.Add(CsvRoundTripMetadata.Create(c, visibleHeader, row));
+            await w.WriteLineAsync(CsvWriter.Format(row));
         }
     }
 
@@ -45,6 +51,8 @@ public sealed class OutlookCsvWriter
             c.AdditionalNames ?? "",
             c.FamilyName ?? "",
             c.HonorificSuffix ?? "",
+            c.FormattedName ?? "",
+            c.Nickname ?? "",
             c.Organization ?? "",
             "",                                  // Department
             c.Title ?? "",
@@ -79,15 +87,15 @@ public sealed class OutlookCsvWriter
         }
 
         var pBusinessFax = PickKind(PhoneKind.Fax);   // first Fax → Business Fax
-        var pBusiness    = PickKind(PhoneKind.Work);
-        var pBusiness2   = PickKind(PhoneKind.Work);
-        var pMain        = PickKind(PhoneKind.Main);
-        var pHomeFax     = PickKind(PhoneKind.Fax);   // second Fax → Home Fax
-        var pHome        = PickKind(PhoneKind.Home);
-        var pHome2       = PickKind(PhoneKind.Home);
-        var pMobile      = PickKind(PhoneKind.Mobile);
-        var pOther       = PickKind(PhoneKind.Other);
-        var pPager       = PickKind(PhoneKind.Pager);
+        var pBusiness = PickKind(PhoneKind.Work);
+        var pBusiness2 = PickKind(PhoneKind.Work);
+        var pMain = PickKind(PhoneKind.Main);
+        var pHomeFax = PickKind(PhoneKind.Fax);   // second Fax → Home Fax
+        var pHome = PickKind(PhoneKind.Home);
+        var pHome2 = PickKind(PhoneKind.Home);
+        var pMobile = PickKind(PhoneKind.Mobile);
+        var pOther = PickKind(PhoneKind.Other);
+        var pPager = PickKind(PhoneKind.Pager);
 
         row.Add("");                              // Assistant's Phone
         row.Add(P(pBusinessFax));
@@ -118,13 +126,13 @@ public sealed class OutlookCsvWriter
             if (!written.Contains(i))
                 leftoverPhones.Add($"{phones[i].Kind.ToString().ToLowerInvariant()}={P(phones[i])}");
         var leftoverEmails = c.Emails.Skip(3).Select(e => e.Address).ToList();
-        var leftoverUrls   = c.Urls.Skip(1).ToList();
+        var leftoverUrls = c.Urls.Skip(1).ToList();
 
         var notes = c.Notes ?? string.Empty;
         var extras = new List<string>();
         if (leftoverPhones.Count > 0) extras.Add("phones: " + string.Join("; ", leftoverPhones));
         if (leftoverEmails.Count > 0) extras.Add("extra emails: " + string.Join("; ", leftoverEmails));
-        if (leftoverUrls.Count > 0)   extras.Add("urls: "         + string.Join("; ", leftoverUrls));
+        if (leftoverUrls.Count > 0) extras.Add("urls: " + string.Join("; ", leftoverUrls));
         if (extras.Count > 0)
         {
             if (!string.IsNullOrEmpty(notes)) notes += "\n";

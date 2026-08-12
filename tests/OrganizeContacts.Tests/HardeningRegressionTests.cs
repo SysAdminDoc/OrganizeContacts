@@ -260,7 +260,7 @@ public class HardeningRegressionTests
 
         // Last 7 digits = "1234567", last 10 differ ("9991234567" vs "1111234567").
         var a = Mk("Alice", "9991234567");
-        var b = Mk("Bob",   "1111234567");
+        var b = Mk("Bob", "1111234567");
         var (conf, signals) = engine.ScorePair(a, b);
         Assert.DoesNotContain(signals, s => s.Label.StartsWith("phone last 7", StringComparison.Ordinal));
         Assert.True(conf == 0, $"Expected no phone-tail signal at MinPhoneDigits=10, got conf={conf}");
@@ -454,20 +454,19 @@ public class HardeningRegressionTests
         try
         {
             await new OutlookCsvWriter().WriteFileAsync(path, new[] { c });
-            var bytes = await File.ReadAllTextAsync(path);
+            List<List<string>> rows;
+            using (var reader = new StreamReader(path)) rows = CsvReader.Read(reader).ToList();
+            var notes = rows[1][rows[0].FindIndex(x => x == "Notes")];
             // The overflow marker must appear in the row, surfacing the dropped values.
-            Assert.Contains("[OrganizeContacts overflow]", bytes);
-            Assert.Contains("5550000003", bytes); // 3rd work
-            Assert.Contains("5550000011", bytes); // 2nd mobile
-            Assert.Contains("5550000022", bytes); // 3rd fax
+            Assert.Contains("[OrganizeContacts overflow]", notes);
+            Assert.Contains("5550000003", notes); // 3rd work
+            Assert.Contains("5550000011", notes); // 2nd mobile
+            Assert.Contains("5550000022", notes); // 3rd fax
             // First two Faxes occupy Business Fax and Home Fax slots — must NOT be in the overflow.
-            // (Cheap check: the overflow segment is what comes after the marker.)
-            var marker = bytes.IndexOf("[OrganizeContacts overflow]", StringComparison.Ordinal);
-            var overflow = bytes.Substring(marker);
-            Assert.DoesNotContain("5550000020", overflow);
-            Assert.DoesNotContain("5550000021", overflow);
+            Assert.DoesNotContain("5550000020", notes);
+            Assert.DoesNotContain("5550000021", notes);
             // Original note must still be there.
-            Assert.Contains("original note", bytes);
+            Assert.Contains("original note", notes);
         }
         finally { try { File.Delete(path); } catch { } }
     }

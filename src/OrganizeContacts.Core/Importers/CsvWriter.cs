@@ -33,7 +33,7 @@ public static class CsvWriter
     public static string Escape(string? f)
     {
         if (string.IsNullOrEmpty(f)) return string.Empty;
-        var sanitized = StripFormulaPrefix(f);
+        var sanitized = SanitizeCell(f);
         if (sanitized.IndexOfAny(QuotingTriggers) < 0) return sanitized;
         return "\"" + sanitized.Replace("\"", "\"\"") + "\"";
     }
@@ -44,7 +44,7 @@ public static class CsvWriter
     /// with a character that Excel/Sheets/Numbers would treat as a formula. The single
     /// quote is invisible in the spreadsheet but neutralises evaluation. Idempotent —
     /// re-importing through our own reader simply sees the leading quote as literal.</summary>
-    private static string StripFormulaPrefix(string f)
+    internal static string SanitizeCell(string f)
     {
         if (f.Length == 0) return f;
         var first = f[0];

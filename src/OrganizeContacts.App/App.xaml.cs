@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -8,23 +9,35 @@ namespace OrganizeContacts.App;
 
 public partial class App : Application
 {
+    private static string s_preferredTheme = "Mocha";
+
     public static LocalDiagnosticLog? Diagnostics { get; private set; }
 
-    /// <summary>Swap the active theme resource dictionary. Locates the existing theme by
-    /// matching on the `Themes/Catppuccin*.xaml` path so the swap is correct even after
-    /// another `MergedDictionaries` entry has been inserted ahead of it (e.g. a future
-    /// shared-styles dict).</summary>
+    /// <summary>Remember the user's palette and apply it unless Windows High Contrast is active.</summary>
     public static void ApplyTheme(string theme)
     {
-        var path = string.Equals(theme, "Latte", System.StringComparison.OrdinalIgnoreCase)
-            ? "Themes/CatppuccinLatte.xaml"
-            : "Themes/CatppuccinMocha.xaml";
+        s_preferredTheme = string.Equals(theme, "HighContrast", StringComparison.OrdinalIgnoreCase)
+            ? "HighContrast"
+            : string.Equals(theme, "Latte", StringComparison.OrdinalIgnoreCase)
+                ? "Latte"
+                : "Mocha";
+        ApplyEffectiveTheme();
+    }
+
+    private static void ApplyEffectiveTheme()
+    {
+        var path = SystemParameters.HighContrast || s_preferredTheme == "HighContrast"
+            ? "Themes/HighContrast.xaml"
+            : string.Equals(s_preferredTheme, "Latte", StringComparison.OrdinalIgnoreCase)
+                ? "Themes/CatppuccinLatte.xaml"
+                : "Themes/CatppuccinMocha.xaml";
         var rd = new ResourceDictionary { Source = new System.Uri(path, System.UriKind.Relative) };
         var dictionaries = Current.Resources.MergedDictionaries;
         for (int i = 0; i < dictionaries.Count; i++)
         {
             var existing = dictionaries[i].Source?.OriginalString ?? string.Empty;
-            if (existing.IndexOf("themes/catppuccin", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            if (existing.IndexOf("themes/catppuccin", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                existing.IndexOf("themes/highcontrast", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 dictionaries[i] = rd;
                 return;
@@ -45,9 +58,27 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        SystemParameters.StaticPropertyChanged += OnSystemParametersChanged;
 
         var settings = AppSettings.LoadOrDefault(Path.Combine(dataDir, "settings.json"));
         ApplyTheme(settings.Theme);
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        SystemParameters.StaticPropertyChanged -= OnSystemParametersChanged;
+        base.OnExit(e);
+    }
+
+    private static void OnSystemParametersChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(e.PropertyName) && e.PropertyName != nameof(SystemParameters.HighContrast))
+            return;
+
+        if (Current.Dispatcher.CheckAccess())
+            ApplyEffectiveTheme();
+        else
+            _ = Current.Dispatcher.InvokeAsync(ApplyEffectiveTheme);
     }
 
     private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

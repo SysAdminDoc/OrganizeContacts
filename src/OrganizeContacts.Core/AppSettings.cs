@@ -15,7 +15,7 @@ public sealed class AppSettings
 
     public bool ConfirmDestructiveActions { get; set; } = true;
 
-    /// <summary>"Mocha" (default dark) or "Latte" (light).</summary>
+    /// <summary>"Mocha" (default dark), "Latte" (light), or "HighContrast".</summary>
     public string Theme { get; set; } = "Mocha";
 
     /// <summary>Set by <see cref="LoadOrDefault"/> if the on-disk file existed but

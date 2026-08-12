@@ -21,7 +21,9 @@ public partial class SettingsDialog : Window
         StripGmailDotsBox.IsChecked = settings.StripGmailDots;
         StripPlusTagBox.IsChecked = settings.StripPlusTag;
         ConfirmDestructiveBox.IsChecked = settings.ConfirmDestructiveActions;
-        ThemeCombo.SelectedIndex = string.Equals(settings.Theme, "Latte", System.StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        ThemeCombo.SelectedIndex = string.Equals(settings.Theme, "HighContrast", System.StringComparison.OrdinalIgnoreCase)
+            ? 2
+            : string.Equals(settings.Theme, "Latte", System.StringComparison.OrdinalIgnoreCase) ? 1 : 0;
     }
 
     private void OnSave(object sender, RoutedEventArgs e)
@@ -32,7 +34,12 @@ public partial class SettingsDialog : Window
         Working.StripGmailDots = StripGmailDotsBox.IsChecked == true;
         Working.StripPlusTag = StripPlusTagBox.IsChecked == true;
         Working.ConfirmDestructiveActions = ConfirmDestructiveBox.IsChecked == true;
-        Working.Theme = ThemeCombo.SelectedIndex == 1 ? "Latte" : "Mocha";
+        Working.Theme = ThemeCombo.SelectedIndex switch
+        {
+            1 => "Latte",
+            2 => "HighContrast",
+            _ => "Mocha",
+        };
         DialogResult = true;
     }
 

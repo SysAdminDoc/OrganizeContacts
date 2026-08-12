@@ -20,6 +20,12 @@ All notable changes to OrganizeContacts will be documented in this file.
 - Retained unnamed and remote-photo vCards without network access, emitted the
   required name properties, and enforced the 4 MiB raster-photo limit across
   vCard, jCard, CSV metadata, and Android database imports.
+- Added a Windows system-color high-contrast theme that follows live OS changes
+  and can be selected explicitly without restarting the app.
+- Made the local release build fail on vulnerable direct or transitive NuGet
+  packages before producing its MSI, portable archive, SBOM, and checksums.
+- Replaced stale version promises with migration recipes, matching-rule
+  explanations, privacy/security guidance, upgrade notes, and contribution gates.
 
 ## v0.3.5 — 2026-08-09 — Release metadata sync
 

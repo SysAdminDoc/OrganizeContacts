@@ -87,6 +87,31 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Version must be a three-part numeric version, got '$Version'"
 }
 
+Write-Host "Auditing direct and transitive NuGet dependencies..."
+$auditJson = & dotnet list $solution package --vulnerable --include-transitive --format json --no-restore
+if ($LASTEXITCODE -ne 0) {
+    throw "NuGet vulnerability audit failed with exit code $LASTEXITCODE"
+}
+$audit = ($auditJson -join [Environment]::NewLine) | ConvertFrom-Json
+$vulnerablePackages = @(
+    foreach ($project in @($audit.projects)) {
+        foreach ($framework in @($project.frameworks)) {
+            $packages = @($framework.topLevelPackages) + @($framework.transitivePackages)
+            foreach ($package in $packages) {
+                if ($null -eq $package) { continue }
+                $vulnerabilities = @($package.vulnerabilities | Where-Object { $null -ne $_ })
+                if ($vulnerabilities.Count -gt 0) {
+                    "$($package.id) $($package.resolvedVersion) ($($vulnerabilities.Count) advisory/advisories)"
+                }
+            }
+        }
+    }
+)
+if ($vulnerablePackages.Count -gt 0) {
+    throw "Release blocked by vulnerable NuGet packages: $($vulnerablePackages -join '; ')"
+}
+Write-Host "NuGet dependency audit passed."
+
 $portableRoot = Join-Path $artifactRoot "OrganizeContacts-$Version-win-x64"
 $portableZip = Join-Path $artifactRoot "OrganizeContacts-$Version-win-x64-portable.zip"
 $installerPath = Join-Path $artifactRoot "OrganizeContacts-$Version-win-x64.msi"

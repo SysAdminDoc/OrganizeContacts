@@ -40,6 +40,7 @@
     <SolidColorBrush x:Key="TextBrush"      Color="{StaticResource Text}" />
     <SolidColorBrush x:Key="AccentBrush"    Color="{StaticResource Mauve}" />
     <SolidColorBrush x:Key="AccentAltBrush" Color="{StaticResource Blue}" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="{StaticResource Crust}" />
     <SolidColorBrush x:Key="DangerBrush"    Color="{StaticResource Red}" />
     <SolidColorBrush x:Key="WarningBrush"   Color="{StaticResource Peach}" />
     <SolidColorBrush x:Key="SuccessBrush"   Color="{StaticResource Green}" />

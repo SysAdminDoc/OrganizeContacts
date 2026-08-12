@@ -1,5 +1,6 @@
 using System.Text;
 using OrganizeContacts.Core.Models;
+using OrganizeContacts.Core.Photos;
 
 namespace OrganizeContacts.Core.Importers;
 
@@ -42,7 +43,7 @@ public sealed class VCardWriter
         AppendLine(sb, "BEGIN:VCARD");
         AppendLine(sb, $"VERSION:{version}");
 
-        if (!string.IsNullOrWhiteSpace(c.Uid)) AppendLine(sb, $"UID:{Escape(c.Uid!)}");
+        if (!string.IsNullOrWhiteSpace(c.Uid)) AppendLine(sb, $"UID:{EscapeUri(c.Uid!)}");
 
         // N (structured) and FN
         var n = string.Join(';', new[]
@@ -53,34 +54,41 @@ public sealed class VCardWriter
             c.HonorificPrefix ?? string.Empty,
             c.HonorificSuffix ?? string.Empty,
         }.Select(EscapeStructured));
-        if (n != ";;;;") AppendLine(sb, $"N:{n}");
+        AppendLine(sb, $"N:{n}");
 
         var fn = string.IsNullOrWhiteSpace(c.FormattedName) ? c.DisplayName : c.FormattedName!;
-        if (!string.IsNullOrWhiteSpace(fn)) AppendLine(sb, $"FN:{Escape(fn)}");
+        AppendLine(sb, $"FN:{Escape(fn)}");
 
         if (!string.IsNullOrWhiteSpace(c.Nickname)) AppendLine(sb, $"NICKNAME:{Escape(c.Nickname!)}");
         if (!string.IsNullOrWhiteSpace(c.Organization)) AppendLine(sb, $"ORG:{EscapeStructured(c.Organization!)}");
         if (!string.IsNullOrWhiteSpace(c.Title)) AppendLine(sb, $"TITLE:{Escape(c.Title!)}");
         if (c.Birthday.HasValue) AppendLine(sb, $"BDAY:{c.Birthday.Value:yyyy-MM-dd}");
-        if (c.Anniversary.HasValue) AppendLine(sb, $"ANNIVERSARY:{c.Anniversary.Value:yyyy-MM-dd}");
+        if (c.Anniversary.HasValue)
+        {
+            var property = Version == VCardVersion.V4_0 ? "ANNIVERSARY" : "X-ANNIVERSARY";
+            AppendLine(sb, $"{property}:{c.Anniversary.Value:yyyy-MM-dd}");
+        }
         if (!string.IsNullOrWhiteSpace(c.Notes)) AppendLine(sb, $"NOTE:{Escape(c.Notes!)}");
 
         foreach (var p in c.Phones)
         {
-            var paramStr = BuildTypeParams(p.Kind.ToString().ToUpperInvariant(), p.IsPreferred);
+            var paramStr = BuildTypeParams(PhoneType(p.Kind), p.IsPreferred);
             var v = string.IsNullOrEmpty(p.E164) ? p.Raw : p.E164!;
-            AppendLine(sb, $"TEL{paramStr}:{Escape(v)}");
+            if (Version == VCardVersion.V4_0)
+                AppendLine(sb, $"TEL;VALUE=uri{paramStr}:{ToTelephoneUri(v)}");
+            else
+                AppendLine(sb, $"TEL{paramStr}:{Escape(v)}");
         }
 
         foreach (var e in c.Emails)
         {
-            var paramStr = BuildTypeParams(e.Kind.ToString().ToUpperInvariant(), e.IsPreferred);
+            var paramStr = BuildTypeParams(EmailType(e.Kind), e.IsPreferred);
             AppendLine(sb, $"EMAIL{paramStr}:{Escape(e.Address)}");
         }
 
         foreach (var a in c.Addresses)
         {
-            var paramStr = BuildTypeParams(a.Kind.ToString().ToUpperInvariant(), a.IsPreferred);
+            var paramStr = BuildTypeParams(AddressType(a.Kind), a.IsPreferred);
             var adr = string.Join(';', new[]
             {
                 a.PoBox ?? string.Empty,
@@ -94,7 +102,7 @@ public sealed class VCardWriter
             AppendLine(sb, $"ADR{paramStr}:{adr}");
         }
 
-        foreach (var u in c.Urls) AppendLine(sb, $"URL:{Escape(u)}");
+        foreach (var u in c.Urls) AppendLine(sb, $"URL:{EscapeUri(u)}");
 
         if (c.Categories.Count > 0)
             AppendLine(sb, $"CATEGORIES:{string.Join(',', c.Categories.Select(Escape))}");
@@ -102,36 +110,109 @@ public sealed class VCardWriter
         if (c.PhotoBytes is { Length: > 0 })
         {
             var b64 = Convert.ToBase64String(c.PhotoBytes);
+            var mime = PhotoSanitizer.NormalizeImageMimeType(c.PhotoMimeType) ??
+                       PhotoSanitizer.InferMimeType(c.PhotoBytes) ??
+                       "image/jpeg";
             if (Version == VCardVersion.V4_0)
             {
-                var mime = string.IsNullOrEmpty(c.PhotoMimeType) ? "image/jpeg" : c.PhotoMimeType!;
                 AppendLine(sb, $"PHOTO:data:{mime};base64,{b64}");
             }
             else
             {
-                var typ = (c.PhotoMimeType ?? "image/jpeg").Replace("image/", "").ToUpperInvariant();
+                var typ = mime["image/".Length..].ToUpperInvariant();
                 AppendLine(sb, $"PHOTO;ENCODING=b;TYPE={typ}:{b64}");
             }
         }
 
+        if (c.CustomFields.TryGetValue(VCardImporter.PreservedPhotoUriField, out var photoUri) &&
+            Uri.TryCreate(photoUri, UriKind.Absolute, out _))
+        {
+            var valueParam = Version == VCardVersion.V4_0 ? string.Empty : ";VALUE=URI";
+            AppendLine(sb, $"PHOTO{valueParam}:{EscapeUri(photoUri)}");
+        }
+
         foreach (var kv in c.CustomFields)
         {
-            var key = kv.Key.StartsWith("X-") ? kv.Key : "X-" + kv.Key;
+            if (kv.Key.Equals(VCardImporter.PreservedPhotoUriField, StringComparison.OrdinalIgnoreCase)) continue;
+            var key = NormalizeCustomPropertyName(kv.Key);
             AppendLine(sb, $"{key}:{Escape(kv.Value)}");
         }
 
         var rev = c.Rev ?? c.UpdatedAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ");
-        AppendLine(sb, $"REV:{rev}");
+        AppendLine(sb, $"REV:{Escape(rev)}");
         AppendLine(sb, "END:VCARD");
     }
 
-    private static string BuildTypeParams(string type, bool pref)
+    private string BuildTypeParams(string? type, bool pref)
     {
+        if (Version == VCardVersion.V3_0)
+        {
+            var values = new List<string>();
+            if (!string.IsNullOrEmpty(type)) values.Add(type);
+            if (pref) values.Add("PREF");
+            return values.Count == 0 ? string.Empty : ";TYPE=" + string.Join(',', values);
+        }
+
         var bits = new List<string>();
-        if (!string.IsNullOrEmpty(type) && !type.Equals("OTHER", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(type))
             bits.Add($"TYPE={type}");
-        if (pref) bits.Add("TYPE=PREF");
+        if (pref) bits.Add("PREF=1");
         return bits.Count == 0 ? string.Empty : ";" + string.Join(';', bits);
+    }
+
+    private static string? PhoneType(PhoneKind kind) => kind switch
+    {
+        PhoneKind.Mobile => "CELL",
+        PhoneKind.Home => "HOME",
+        PhoneKind.Work => "WORK",
+        PhoneKind.Fax => "FAX",
+        PhoneKind.Pager => "PAGER",
+        PhoneKind.Main => "VOICE",
+        _ => null,
+    };
+
+    private static string? EmailType(EmailKind kind) => kind switch
+    {
+        EmailKind.Personal => "HOME",
+        EmailKind.Work => "WORK",
+        _ => null,
+    };
+
+    private static string? AddressType(AddressKind kind) => kind switch
+    {
+        AddressKind.Home => "HOME",
+        AddressKind.Work => "WORK",
+        _ => null,
+    };
+
+    private static string ToTelephoneUri(string value)
+    {
+        var number = value.StartsWith("tel:", StringComparison.OrdinalIgnoreCase) ? value[4..] : value;
+        var encoded = Uri.EscapeDataString(number)
+            .Replace("%2B", "+", StringComparison.OrdinalIgnoreCase)
+            .Replace("%28", "(", StringComparison.OrdinalIgnoreCase)
+            .Replace("%29", ")", StringComparison.OrdinalIgnoreCase)
+            .Replace("%2A", "*", StringComparison.OrdinalIgnoreCase)
+            .Replace("%23", "#", StringComparison.OrdinalIgnoreCase)
+            .Replace("%3B", ";", StringComparison.OrdinalIgnoreCase)
+            .Replace("%3D", "=", StringComparison.OrdinalIgnoreCase)
+            .Replace("%2C", ",", StringComparison.OrdinalIgnoreCase);
+        return "tel:" + encoded;
+    }
+
+    private static string EscapeUri(string value) => value
+        .Replace("\r", "%0D", StringComparison.Ordinal)
+        .Replace("\n", "%0A", StringComparison.Ordinal)
+        .Replace("\t", "%09", StringComparison.Ordinal)
+        .Replace(" ", "%20", StringComparison.Ordinal);
+
+    private static string NormalizeCustomPropertyName(string key)
+    {
+        var source = key.StartsWith("X-", StringComparison.OrdinalIgnoreCase) ? key : "X-" + key;
+        var normalized = new StringBuilder(source.Length);
+        foreach (var ch in source)
+            normalized.Append(char.IsAsciiLetterOrDigit(ch) || ch == '-' ? char.ToUpperInvariant(ch) : '-');
+        return normalized.Length > 2 ? normalized.ToString() : "X-FIELD";
     }
 
     private static string Escape(string s)

@@ -1,5 +1,6 @@
 using System.IO;
 using OrganizeContacts.Core.Importers;
+using OrganizeContacts.Core.Models;
 
 namespace OrganizeContacts.Tests;
 
@@ -150,5 +151,45 @@ public class VCardImporterTests
         Assert.Equal("Alice", list[0].FormattedName);
         Assert.Equal("Bob", list[1].FormattedName);
         Assert.Equal("vCard 4.0", list[1].SourceFormat);
+    }
+
+    [Fact]
+    public async Task Parses_vcard4_tel_uri_numeric_preference_and_combined_types()
+    {
+        var src = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Fax\r\n" +
+                  "TEL;VALUE=uri;TYPE=work,fax;PREF=2:tel:+1-202-555-0100%20ext\r\n" +
+                  "TEL;VALUE=uri;PREF=0:tel:555-0101\r\nEND:VCARD\r\n";
+
+        var contact = Assert.Single(await ReadFromString(src));
+
+        Assert.Equal(PhoneKind.Fax, contact.Phones[0].Kind);
+        Assert.True(contact.Phones[0].IsPreferred);
+        Assert.Equal("+1-202-555-0100 ext", contact.Phones[0].Raw);
+        Assert.False(contact.Phones[1].IsPreferred);
+    }
+
+    [Fact]
+    public async Task Keeps_embedded_photo_only_card()
+    {
+        var photo = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x01 };
+        var src = "BEGIN:VCARD\r\nVERSION:4.0\r\n" +
+                  $"PHOTO:data:image/jpeg;base64,{Convert.ToBase64String(photo)}\r\n" +
+                  "END:VCARD\r\n";
+
+        var contact = Assert.Single(await ReadFromString(src));
+
+        Assert.Equal(photo, contact.PhotoBytes);
+        Assert.Equal("image/jpeg", contact.PhotoMimeType);
+    }
+
+    [Fact]
+    public async Task Unescapes_vendor_extension_text_once()
+    {
+        var src = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Extension\r\n" +
+                  "X-TEST:one\\,two\\;three\\\\four\\nfive\r\nEND:VCARD\r\n";
+
+        var contact = Assert.Single(await ReadFromString(src));
+
+        Assert.Equal("one,two;three\\four\nfive", contact.CustomFields["X-TEST"]);
     }
 }

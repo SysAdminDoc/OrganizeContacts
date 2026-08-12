@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using OrganizeContacts.Core.Models;
+using OrganizeContacts.Core.Photos;
 
 namespace OrganizeContacts.Core.Importers;
 
@@ -102,6 +103,7 @@ internal static class CsvRoundTripMetadata
                 Encoding.ASCII.GetBytes(payload.VisibleFingerprint),
                 Encoding.ASCII.GetBytes(Fingerprint(header, row, metadataIndex))))
             return false;
+        if (payload.PhotoBytes is { Length: > PhotoSanitizer.MaxPhotoBytes }) return false;
 
         contact.Uid = payload.Uid;
         contact.Rev = payload.Rev;

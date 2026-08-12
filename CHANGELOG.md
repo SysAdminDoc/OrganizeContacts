@@ -14,6 +14,12 @@ All notable changes to OrganizeContacts will be documented in this file.
   spreadsheet edits.
 - Preserved unmodeled CSV columns under their original headers, expanded Google
   address/URL coverage, and recovered legacy Outlook overflow values from Notes.
+- Corrected vCard 4 output to use numeric preferences, canonical type tokens,
+  and `tel:` URI values; vCard 3 now emits its anniversary extension and
+  combined preference types while escaped extensions round-trip exactly.
+- Retained unnamed and remote-photo vCards without network access, emitted the
+  required name properties, and enforced the 4 MiB raster-photo limit across
+  vCard, jCard, CSV metadata, and Android database imports.
 
 ## v0.3.5 — 2026-08-09 — Release metadata sync
 

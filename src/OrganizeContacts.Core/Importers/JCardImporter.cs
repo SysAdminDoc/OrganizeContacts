@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using OrganizeContacts.Core.Models;
+using OrganizeContacts.Core.Photos;
 
 namespace OrganizeContacts.Core.Importers;
 
@@ -180,6 +181,11 @@ public sealed class JCardImporter : IContactImporter
                 case "PHOTO":
                 case "LOGO":
                     if (TryAttachPhoto(contact, value)) seen = true;
+                    else if (Uri.TryCreate(value, UriKind.Absolute, out _))
+                    {
+                        contact.CustomFields[VCardImporter.PreservedPhotoUriField] = value!;
+                        seen = true;
+                    }
                     break;
                 default:
                     if (name.StartsWith("X-", StringComparison.OrdinalIgnoreCase) &&
@@ -249,35 +255,27 @@ public sealed class JCardImporter : IContactImporter
         if (!metadata.Split(';').Any(x => x.Equals("base64", StringComparison.OrdinalIgnoreCase)))
             return false;
 
-        try
-        {
-            var bytes = Convert.FromBase64String(value[(comma + 1)..]);
-            if (bytes.Length == 0) return false;
-            contact.PhotoBytes = bytes;
-            var mime = metadata.Split(';', 2)[0];
-            contact.PhotoMimeType = string.IsNullOrWhiteSpace(mime) ? null : mime;
-            return true;
-        }
-        catch (FormatException)
-        {
-            return false;
-        }
+        if (!PhotoSanitizer.TryDecodeBase64(value[(comma + 1)..], out var bytes)) return false;
+        var mime = PhotoSanitizer.NormalizeImageMimeType(metadata.Split(';', 2)[0]) ??
+                   PhotoSanitizer.InferMimeType(bytes);
+        if (mime is null) return false;
+        contact.PhotoBytes = bytes;
+        contact.PhotoMimeType = mime;
+        return true;
     }
 
     private static PhoneKind ParsePhoneKind(JsonElement parameters)
     {
-        foreach (var t in ParameterValues(parameters, "type"))
-        {
-            switch (t?.ToUpperInvariant())
-            {
-                case "CELL": case "MOBILE": return PhoneKind.Mobile;
-                case "HOME": return PhoneKind.Home;
-                case "WORK": return PhoneKind.Work;
-                case "FAX": return PhoneKind.Fax;
-                case "PAGER": return PhoneKind.Pager;
-                case "MAIN": case "VOICE": return PhoneKind.Main;
-            }
-        }
+        var types = ParameterValues(parameters, "type")
+            .Where(x => x is not null)
+            .Select(x => x!.ToUpperInvariant())
+            .ToHashSet(StringComparer.Ordinal);
+        if (types.Contains("FAX")) return PhoneKind.Fax;
+        if (types.Contains("CELL") || types.Contains("MOBILE")) return PhoneKind.Mobile;
+        if (types.Contains("HOME")) return PhoneKind.Home;
+        if (types.Contains("WORK")) return PhoneKind.Work;
+        if (types.Contains("PAGER")) return PhoneKind.Pager;
+        if (types.Contains("MAIN") || types.Contains("VOICE")) return PhoneKind.Main;
         return PhoneKind.Other;
     }
 
@@ -310,7 +308,7 @@ public sealed class JCardImporter : IContactImporter
             .Any(x => x.Equals("pref", StringComparison.OrdinalIgnoreCase))) return true;
 
         return ParameterValues(parameters, "pref").Any(x =>
-            int.TryParse(x, out var rank) && rank == 1);
+            int.TryParse(x, out var rank) && rank is >= 1 and <= 100);
     }
 
     private static IEnumerable<string> ParameterValues(JsonElement parameters, string name)

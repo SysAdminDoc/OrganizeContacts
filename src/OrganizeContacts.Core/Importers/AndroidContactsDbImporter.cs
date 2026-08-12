@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using OrganizeContacts.Core.Models;
+using OrganizeContacts.Core.Photos;
 
 namespace OrganizeContacts.Core.Importers;
 
@@ -208,10 +209,10 @@ public sealed class AndroidContactsDbImporter : IContactImporter
                 break;
 
             case PhotoMime:
-                if (blob is { Length: > 0 })
+                if (blob is { Length: > 0 and <= PhotoSanitizer.MaxPhotoBytes })
                 {
                     contact.PhotoBytes ??= blob;
-                    contact.PhotoMimeType ??= InferPhotoMime(blob);
+                    contact.PhotoMimeType ??= PhotoSanitizer.InferMimeType(blob);
                 }
                 break;
 
@@ -300,14 +301,6 @@ public sealed class AndroidContactsDbImporter : IContactImporter
         var formats = new[] { "yyyy-MM-dd", "yyyyMMdd", "MM/dd/yyyy" };
         return DateOnly.TryParseExact(value, formats, CultureInfo.InvariantCulture,
             DateTimeStyles.None, out date);
-    }
-
-    private static string? InferPhotoMime(byte[] bytes)
-    {
-        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return "image/jpeg";
-        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return "image/png";
-        if (bytes.Length >= 3 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) return "image/gif";
-        return null;
     }
 
     private static string? Text(SqliteDataReader reader, int index) =>

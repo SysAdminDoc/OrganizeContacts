@@ -15,6 +15,78 @@ public static class PhotoSanitizer
     /// <summary>Maximum decompressed photo size we'll accept inline. Above this we drop the photo.</summary>
     public const int MaxPhotoBytes = 4 * 1024 * 1024;
 
+    /// <summary>
+    /// Decode an inline base64 photo without ever allocating a decoded payload above
+    /// <see cref="MaxPhotoBytes"/>. Whitespace is accepted for folded vCard values.
+    /// </summary>
+    public static bool TryDecodeBase64(string? input, out byte[] bytes)
+    {
+        bytes = Array.Empty<byte>();
+        if (string.IsNullOrWhiteSpace(input)) return false;
+
+        var significantChars = 0;
+        var penultimate = '\0';
+        var last = '\0';
+        foreach (var ch in input)
+        {
+            if (char.IsWhiteSpace(ch)) continue;
+            significantChars++;
+            penultimate = last;
+            last = ch;
+        }
+
+        var maxEncodedChars = ((MaxPhotoBytes + 2) / 3) * 4;
+        if (significantChars == 0 || significantChars > maxEncodedChars || significantChars % 4 != 0)
+            return false;
+        var padding = (last == '=' ? 1 : 0) + (penultimate == '=' ? 1 : 0);
+        var decodedLength = (significantChars / 4 * 3) - padding;
+        if (decodedLength <= 0 || decodedLength > MaxPhotoBytes) return false;
+
+        var normalized = significantChars == input.Length
+            ? input
+            : new string(input.Where(ch => !char.IsWhiteSpace(ch)).ToArray());
+        try
+        {
+            var decoded = Convert.FromBase64String(normalized);
+            if (decoded.Length == 0 || decoded.Length > MaxPhotoBytes) return false;
+            bytes = decoded;
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    public static string? NormalizeImageMimeType(string? mime)
+    {
+        if (string.IsNullOrWhiteSpace(mime)) return null;
+        var value = mime.Split(';', 2)[0].Trim().ToLowerInvariant();
+        if (value == "image/jpg") value = "image/jpeg";
+        return s_supportedImageMimeTypes.Contains(value) ? value : null;
+    }
+
+    private static readonly HashSet<string> s_supportedImageMimeTypes = new(StringComparer.Ordinal)
+    {
+        "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp",
+        "image/tiff", "image/avif", "image/heic", "image/heif", "image/jp2",
+        "image/x-icon", "image/vnd.microsoft.icon",
+    };
+
+    public static string? InferMimeType(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+            return "image/jpeg";
+        if (bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+            return "image/png";
+        if (bytes.Length >= 3 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46)
+            return "image/gif";
+        if (bytes.Length >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 &&
+            bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50)
+            return "image/webp";
+        return null;
+    }
+
     public static byte[] StripMetadata(byte[] input, string? mime = null)
     {
         if (input is null || input.Length == 0) return Array.Empty<byte>();

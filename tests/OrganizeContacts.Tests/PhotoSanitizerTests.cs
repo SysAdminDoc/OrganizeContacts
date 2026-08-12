@@ -32,6 +32,36 @@ public class PhotoSanitizerTests
     }
 
     [Fact]
+    public void Decodes_folded_base64_within_photo_limit()
+    {
+        var source = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x01, 0x02 };
+        var encoded = Convert.ToBase64String(source).Insert(4, " \r\n\t");
+
+        Assert.True(PhotoSanitizer.TryDecodeBase64(encoded, out var decoded));
+        Assert.Equal(source, decoded);
+    }
+
+    [Fact]
+    public void Rejects_base64_that_could_decode_above_photo_limit()
+    {
+        var maxEncodedChars = ((PhotoSanitizer.MaxPhotoBytes + 2) / 3) * 4;
+        var oversized = new string('A', maxEncodedChars + 4);
+
+        Assert.False(PhotoSanitizer.TryDecodeBase64(oversized, out var decoded));
+        Assert.Empty(decoded);
+    }
+
+    [Fact]
+    public void Accepts_only_syntactically_valid_image_media_types()
+    {
+        Assert.Equal("image/jpeg", PhotoSanitizer.NormalizeImageMimeType(" IMAGE/JPG "));
+        Assert.Equal("image/webp", PhotoSanitizer.NormalizeImageMimeType("image/webp"));
+        Assert.Null(PhotoSanitizer.NormalizeImageMimeType("image/svg+xml;charset=utf-8"));
+        Assert.Null(PhotoSanitizer.NormalizeImageMimeType("text/html"));
+        Assert.Null(PhotoSanitizer.NormalizeImageMimeType("image/png\r\nX-Evil: yes"));
+    }
+
+    [Fact]
     public void Strips_jpeg_app1_exif_segment()
     {
         // Synthetic JPEG with SOI + APP1(EXIF) + APP0(JFIF) + SOS payload + EOI.

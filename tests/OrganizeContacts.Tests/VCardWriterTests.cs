@@ -6,6 +6,55 @@ namespace OrganizeContacts.Tests;
 
 public class VCardWriterTests
 {
+    private static Contact RichContact()
+    {
+        var contact = new Contact
+        {
+            Uid = "urn:uuid:vcard-rich",
+            Rev = "20260812T150000Z",
+            FormattedName = "Dr. Ada M. Lovelace, PhD",
+            GivenName = "Ada",
+            AdditionalNames = "M.",
+            FamilyName = "Lovelace",
+            HonorificPrefix = "Dr.",
+            HonorificSuffix = "PhD",
+            Nickname = "Enchantress",
+            Organization = "Analytical Engines; Labs",
+            Title = "Principal Programmer",
+            Birthday = new DateOnly(1815, 12, 10),
+            Anniversary = new DateOnly(1835, 7, 8),
+            Notes = "Line one\nLine two, with punctuation; and a slash \\",
+            PhotoBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x01, 0x02 },
+            PhotoMimeType = "image/png",
+        };
+        contact.Phones.Add(PhoneNumber.Parse("+1-202-555-0100;ext=7", PhoneKind.Work, preferred: true));
+        contact.Phones.Add(PhoneNumber.Parse("555-0101", PhoneKind.Fax));
+        contact.Phones.Add(PhoneNumber.Parse("555-0102", PhoneKind.Main));
+        contact.Emails.Add(new EmailAddress
+        {
+            Address = "ada@home.example",
+            Kind = EmailKind.Personal,
+            IsPreferred = true,
+        });
+        contact.Emails.Add(new EmailAddress { Address = "ada@work.example", Kind = EmailKind.Work });
+        contact.Addresses.Add(new PostalAddress
+        {
+            PoBox = "PO 42",
+            Extended = "Engine Room",
+            Street = "12 St James's Square",
+            Locality = "London",
+            Region = "Greater London",
+            PostalCode = "SW1Y 4LB",
+            Country = "United Kingdom",
+            Kind = AddressKind.Work,
+            IsPreferred = true,
+        });
+        contact.Categories.AddRange(new[] { "Friends, family", "Semi;Colon", "VIP" });
+        contact.Urls.Add("https://e.test/a,b;c");
+        contact.CustomFields["X-ESCAPED"] = "one,two;three\\four\nfive";
+        return contact;
+    }
+
     [Fact]
     public void Writes_basic_card_in_3_0()
     {
@@ -25,7 +74,7 @@ public class VCardWriterTests
         Assert.Contains("VERSION:3.0", output);
         Assert.Contains("FN:John Doe", output);
         Assert.Contains("N:Doe;John;;;", output);
-        Assert.Contains("TEL;TYPE=MOBILE:+15551234567", output);
+        Assert.Contains("TEL;TYPE=CELL:+15551234567", output);
         Assert.Contains("EMAIL;TYPE=WORK:john@example.com", output);
         Assert.Contains("END:VCARD", output);
     }
@@ -102,5 +151,65 @@ public class VCardWriterTests
         var fnLine = output.Split("\r\n").FirstOrDefault(l => l.StartsWith("FN:"));
         Assert.NotNull(fnLine);
         Assert.True(fnLine!.Length <= 75, $"Line was {fnLine.Length} octets: {fnLine}");
+    }
+
+    [Theory]
+    [InlineData(VCardVersion.V3_0)]
+    [InlineData(VCardVersion.V4_0)]
+    public void Preserves_every_modeled_vcard_field(VCardVersion version)
+    {
+        var source = RichContact();
+        var writer = new VCardWriter { Version = version };
+
+        var serialized = writer.Write(source);
+        var imported = Assert.Single(new VCardImporter().ParseAll(serialized));
+        var report = ExportReportComparer.Compare(new[] { source }, new[] { imported });
+
+        Assert.True(report.IsExact, report.Summary + " " +
+            string.Join(", ", report.Differences.Select(x => x.Field)));
+        Assert.Equal(source.Phones[0].Raw, imported.Phones[0].Raw);
+        Assert.Equal(source.CustomFields["X-ESCAPED"], imported.CustomFields["X-ESCAPED"]);
+        if (version == VCardVersion.V4_0)
+        {
+            Assert.Contains("TEL;VALUE=uri;TYPE=WORK;PREF=1:tel:+1-202-555-0100;ext=7", serialized);
+            Assert.Contains("EMAIL;TYPE=HOME;PREF=1:ada@home.example", serialized);
+            Assert.Contains("ADR;TYPE=WORK;PREF=1:", serialized);
+            Assert.DoesNotContain("TYPE=PREF", serialized);
+            Assert.Contains("ANNIVERSARY:1835-07-08", serialized);
+        }
+        else
+        {
+            Assert.Contains("TEL;TYPE=WORK,PREF:+1-202-555-0100\\;ext=7", serialized);
+            Assert.Contains("X-ANNIVERSARY:1835-07-08", serialized);
+        }
+        Assert.Contains("URL:https://e.test/a,b;c", serialized);
+    }
+
+    [Fact]
+    public void Preserves_external_photo_uri_without_fetching_it()
+    {
+        const string input = "BEGIN:VCARD\r\nVERSION:4.0\r\n" +
+                             "PHOTO:https://images.example.test/a,b;c.jpg\r\nEND:VCARD\r\n";
+        var importer = new VCardImporter();
+
+        var source = Assert.Single(importer.ParseAll(input));
+        var serialized = new VCardWriter { Version = VCardVersion.V4_0 }.Write(source);
+        var roundTripped = Assert.Single(importer.ParseAll(serialized));
+
+        Assert.Equal("https://images.example.test/a,b;c.jpg",
+            source.CustomFields[VCardImporter.PreservedPhotoUriField]);
+        Assert.Contains("PHOTO:https://images.example.test/a,b;c.jpg", serialized);
+        Assert.DoesNotContain("X-ORGANIZECONTACTS-PHOTO-URI:", serialized);
+        Assert.True(ExportReportComparer.Compare(new[] { source }, new[] { roundTripped }).IsExact);
+    }
+
+    [Fact]
+    public void Writer_emits_required_name_properties_for_unnamed_contacts()
+    {
+        var output = new VCardWriter { Version = VCardVersion.V4_0 }.Write(new Contact());
+
+        Assert.Contains("N:;;;;\r\n", output);
+        Assert.Contains("FN:\r\n", output);
+        Assert.Single(new VCardImporter().ParseAll(output));
     }
 }

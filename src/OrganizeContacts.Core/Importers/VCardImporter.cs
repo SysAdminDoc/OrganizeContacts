@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using OrganizeContacts.Core.Models;
+using OrganizeContacts.Core.Photos;
 
 namespace OrganizeContacts.Core.Importers;
 
@@ -11,6 +12,8 @@ namespace OrganizeContacts.Core.Importers;
 /// </summary>
 public sealed class VCardImporter : IContactImporter
 {
+    internal const string PreservedPhotoUriField = "X-ORGANIZECONTACTS-PHOTO-URI";
+
     static VCardImporter()
     {
         // Register code-pages provider once so QUOTED-PRINTABLE blobs that declare
@@ -255,6 +258,10 @@ public sealed class VCardImporter : IContactImporter
                     contact.Anniversary = ParseDate(prop.Value);
                     break;
 
+                case "X-ANNIVERSARY":
+                    contact.Anniversary ??= ParseDate(prop.Value);
+                    break;
+
                 case "NOTE":
                     contact.Notes = UnescapeText(prop.Value);
                     break;
@@ -263,7 +270,7 @@ public sealed class VCardImporter : IContactImporter
                     if (!string.IsNullOrWhiteSpace(prop.Value))
                     {
                         contact.Phones.Add(PhoneNumber.Parse(
-                            UnescapeText(prop.Value),
+                            ParseTelephoneValue(prop.Value),
                             ParsePhoneKind(prop),
                             prop.IsPreferred));
                         seenAny = true;
@@ -321,14 +328,13 @@ public sealed class VCardImporter : IContactImporter
                 default:
                     if (prop.Name.StartsWith("X-") && !string.IsNullOrEmpty(prop.Value))
                     {
-                        // Preserve vendor extensions verbatim.
-                        contact.CustomFields[prop.Name] = prop.Value;
+                        contact.CustomFields[prop.Name] = UnescapeText(prop.Value);
                     }
                     break;
             }
         }
 
-        return seenAny ? contact : null;
+        return seenAny || HasPersonData(contact) ? contact : null;
     }
 
     /// <summary>Parsed property representation.</summary>
@@ -340,14 +346,16 @@ public sealed class VCardImporter : IContactImporter
         public List<KeyValuePair<string, string>> Params { get; } = new();
 
         public bool IsPreferred =>
-            Params.Any(kv =>
-                (kv.Key.Equals("TYPE", StringComparison.OrdinalIgnoreCase) &&
-                 kv.Value.Equals("PREF", StringComparison.OrdinalIgnoreCase)) ||
-                kv.Key.Equals("PREF", StringComparison.OrdinalIgnoreCase));
+            Types.Any(type => type.Equals("PREF", StringComparison.OrdinalIgnoreCase)) ||
+            Params.Any(kv => kv.Key.Equals("PREF", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(kv.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var preference) &&
+                preference is >= 1 and <= 100);
 
         public IEnumerable<string> Types =>
             Params.Where(kv => kv.Key.Equals("TYPE", StringComparison.OrdinalIgnoreCase))
-                  .SelectMany(kv => kv.Value.Split(','));
+                  .SelectMany(kv => kv.Value.Split(','))
+                  .Select(value => value.Trim())
+                  .Where(value => value.Length > 0);
 
         public string? GetParam(string name) =>
             Params.FirstOrDefault(kv => kv.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Value;
@@ -658,11 +666,11 @@ public sealed class VCardImporter : IContactImporter
     private static PhoneKind ParsePhoneKind(VProp prop)
     {
         var types = prop.Types.ToList();
+        if (types.Any(t => t.Equals("FAX", StringComparison.OrdinalIgnoreCase))) return PhoneKind.Fax;
         if (types.Any(t => t.Equals("CELL", StringComparison.OrdinalIgnoreCase) ||
                            t.Equals("MOBILE", StringComparison.OrdinalIgnoreCase))) return PhoneKind.Mobile;
         if (types.Any(t => t.Equals("HOME", StringComparison.OrdinalIgnoreCase))) return PhoneKind.Home;
         if (types.Any(t => t.Equals("WORK", StringComparison.OrdinalIgnoreCase))) return PhoneKind.Work;
-        if (types.Any(t => t.Equals("FAX", StringComparison.OrdinalIgnoreCase))) return PhoneKind.Fax;
         if (types.Any(t => t.Equals("PAGER", StringComparison.OrdinalIgnoreCase))) return PhoneKind.Pager;
         if (types.Any(t => t.Equals("MAIN", StringComparison.OrdinalIgnoreCase) ||
                            t.Equals("VOICE", StringComparison.OrdinalIgnoreCase))) return PhoneKind.Main;
@@ -699,15 +707,9 @@ public sealed class VCardImporter : IContactImporter
                 var meta = prop.Value[5..comma];
                 var data = prop.Value[(comma + 1)..];
                 var isB64 = meta.IndexOf("base64", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (isB64)
+                if (isB64 && PhotoSanitizer.TryDecodeBase64(data, out var bytes))
                 {
-                    try
-                    {
-                        contact.PhotoBytes = Convert.FromBase64String(StripBase64Whitespace(data));
-                        contact.PhotoMimeType = meta.Split(';')[0];
-                        InferMimeFromMagicIfMissing(contact);
-                    }
-                    catch { /* skip malformed */ }
+                    AttachDecodedPhoto(contact, bytes, meta.Split(';')[0]);
                 }
             }
             return;
@@ -718,47 +720,49 @@ public sealed class VCardImporter : IContactImporter
         if (string.Equals(encoding, "BASE64", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(encoding, "B", StringComparison.OrdinalIgnoreCase))
         {
-            try
-            {
-                contact.PhotoBytes = Convert.FromBase64String(StripBase64Whitespace(prop.Value));
-            }
-            catch { /* skip malformed */ return; }
-
+            if (!PhotoSanitizer.TryDecodeBase64(prop.Value, out var bytes)) return;
             var t = prop.GetParam("TYPE");
-            contact.PhotoMimeType = t is null ? null : (t.Contains('/') ? t : $"image/{t.ToLowerInvariant()}");
-            // No TYPE param? Sniff JPEG/PNG magic so the photo isn't orphaned without
-            // a mime type — UI / writer fall back to image/jpeg, but having the right
-            // mime preserves PNG transparency on round-trip.
-            InferMimeFromMagicIfMissing(contact);
+            var declaredMime = t is null ? null : (t.Contains('/') ? t : $"image/{t}");
+            AttachDecodedPhoto(contact, bytes, declaredMime);
             return;
         }
 
-        // External URL — skipped (don't fetch)
+        // Preserve an external URI without fetching it. The writer maps this reserved
+        // extension back to PHOTO, so remote-photo cards do not silently lose the URI.
+        var uriValue = UnescapeText(prop.Value);
+        if (Uri.TryCreate(uriValue, UriKind.Absolute, out _))
+            contact.CustomFields[PreservedPhotoUriField] = uriValue;
     }
 
-    private static string StripBase64Whitespace(string s)
+    private static void AttachDecodedPhoto(Contact contact, byte[] bytes, string? declaredMime)
     {
-        // Faster + GC-friendlier than chained Replace calls.
-        if (s.IndexOfAny(s_b64WhitespaceChars) < 0) return s;
-        var sb = new StringBuilder(s.Length);
-        foreach (var ch in s)
-            if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') sb.Append(ch);
-        return sb.ToString();
+        var mime = PhotoSanitizer.NormalizeImageMimeType(declaredMime) ??
+                   PhotoSanitizer.InferMimeType(bytes);
+        if (mime is null) return;
+        contact.PhotoBytes = bytes;
+        contact.PhotoMimeType = mime;
     }
-    private static readonly char[] s_b64WhitespaceChars = new[] { ' ', '\t', '\r', '\n' };
 
-    private static void InferMimeFromMagicIfMissing(Contact contact)
+    private static string ParseTelephoneValue(string value)
     {
-        if (!string.IsNullOrEmpty(contact.PhotoMimeType)) return;
-        var bytes = contact.PhotoBytes;
-        if (bytes is null || bytes.Length < 4) return;
-        if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) contact.PhotoMimeType = "image/jpeg";
-        else if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) contact.PhotoMimeType = "image/png";
-        else if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) contact.PhotoMimeType = "image/gif";
-        else if (bytes.Length >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 &&
-                 bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50)
-            contact.PhotoMimeType = "image/webp";
+        var decoded = UnescapeText(value);
+        if (!decoded.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) return decoded;
+        try { return Uri.UnescapeDataString(decoded[4..]); }
+        catch (UriFormatException) { return decoded[4..]; }
     }
+
+    private static bool HasPersonData(Contact contact) =>
+        contact.Uid is not null || contact.Rev is not null ||
+        contact.FormattedName is not null || contact.GivenName is not null ||
+        contact.FamilyName is not null || contact.AdditionalNames is not null ||
+        contact.HonorificPrefix is not null || contact.HonorificSuffix is not null ||
+        contact.Nickname is not null || contact.Organization is not null ||
+        contact.Title is not null || contact.Birthday is not null ||
+        contact.Anniversary is not null || contact.Notes is not null ||
+        contact.PhotoBytes is { Length: > 0 } || contact.Phones.Count > 0 ||
+        contact.Emails.Count > 0 || contact.Addresses.Count > 0 ||
+        contact.Categories.Count > 0 || contact.Urls.Count > 0 ||
+        contact.CustomFields.Count > 0;
 }
 
 internal static class VPropExtensions

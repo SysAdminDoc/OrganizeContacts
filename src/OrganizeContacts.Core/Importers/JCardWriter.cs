@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using OrganizeContacts.Core.Models;
+using OrganizeContacts.Core.Photos;
 
 namespace OrganizeContacts.Core.Importers;
 
@@ -32,7 +33,7 @@ public sealed class JCardWriter
         if (!string.IsNullOrWhiteSpace(c.Uid)) WriteProp(w, "uid", "text", c.Uid!);
 
         var formattedName = string.IsNullOrWhiteSpace(c.FormattedName) ? c.DisplayName : c.FormattedName!;
-        if (!string.IsNullOrWhiteSpace(formattedName)) WriteProp(w, "fn", "text", formattedName);
+        WriteProp(w, "fn", "text", formattedName);
 
         WritePropOpen(w, "n");
         w.WriteStartArray();
@@ -95,12 +96,19 @@ public sealed class JCardWriter
 
         if (c.PhotoBytes is { Length: > 0 })
         {
-            var mime = string.IsNullOrWhiteSpace(c.PhotoMimeType) ? "image/jpeg" : c.PhotoMimeType;
+            var mime = PhotoSanitizer.NormalizeImageMimeType(c.PhotoMimeType) ??
+                       PhotoSanitizer.InferMimeType(c.PhotoBytes) ??
+                       "image/jpeg";
             WriteProp(w, "photo", "uri", $"data:{mime};base64,{Convert.ToBase64String(c.PhotoBytes)}");
         }
 
+        if (c.CustomFields.TryGetValue(VCardImporter.PreservedPhotoUriField, out var photoUri) &&
+            Uri.TryCreate(photoUri, UriKind.Absolute, out _))
+            WriteProp(w, "photo", "uri", photoUri);
+
         foreach (var field in c.CustomFields)
         {
+            if (field.Key.Equals(VCardImporter.PreservedPhotoUriField, StringComparison.OrdinalIgnoreCase)) continue;
             var name = field.Key.StartsWith("X-", StringComparison.OrdinalIgnoreCase)
                 ? field.Key
                 : "X-" + field.Key;

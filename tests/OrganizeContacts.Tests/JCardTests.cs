@@ -151,6 +151,7 @@ public class JCardTests
               ["version", {}, "text", "4.0"],
               ["fn", {}, "text", "Nested Values"],
               ["n", {}, "text", ["Values", "Nested", ["Alpha", "Beta"], "", ""]],
+              ["tel", {"type":["work", "fax"], "pref":"2"}, "uri", "tel:+1-555-0100"],
               ["categories", {}, "text", "one", "two"],
               ["x-karma-points", {}, "integer", 95]
             ]]
@@ -164,6 +165,8 @@ public class JCardTests
 
             var contact = Assert.Single(contacts);
             Assert.Equal("Alpha,Beta", contact.AdditionalNames);
+            Assert.Equal(PhoneKind.Fax, Assert.Single(contact.Phones).Kind);
+            Assert.True(contact.Phones[0].IsPreferred);
             Assert.Equal(new[] { "one", "two" }, contact.Categories);
             Assert.Equal("95", contact.CustomFields["X-KARMA-POINTS"]);
         }

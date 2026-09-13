@@ -413,7 +413,7 @@
                                                     <TextBlock Foreground="{DynamicResource Subtext1Brush}"
                                                                FontSize="12">
                                                         <Run Text="- " />
-                                                        <Run Text="{Binding DisplayName}" />
+                                                        <Run Text="{Binding DisplayName, Mode=OneWay}" />
                                                         <Run Text="  " />
                                                         <Run Text="{Binding Organization}"
                                                              Foreground="{DynamicResource Overlay1Brush}" />
